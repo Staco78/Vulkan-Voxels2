@@ -1,51 +1,74 @@
-#![deny(
+#![warn(
     clippy::correctness,
     clippy::suspicious,
     clippy::style,
     clippy::complexity,
     clippy::perf
 )]
-#![deny(
-    clippy::empty_structs_with_brackets,
+#![warn(
+    clippy::unwrap_used,
     clippy::clone_on_ref_ptr,
-    clippy::dbg_macro,
-    clippy::unwrap_used
+    clippy::empty_structs_with_brackets,
+    clippy::dbg_macro
 )]
+#![feature(new_uninit)]
+#![feature(maybe_uninit_write_slice)]
+#![feature(maybe_uninit_slice)]
+#![feature(const_format_args)]
 
-use ash::{vk, Entry};
-use log::{debug, LevelFilter};
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+mod render;
+mod utils;
 
-fn main() {
+use anyhow::{Context, Result};
+use log::LevelFilter;
+use render::{create_window, Renderer};
+use simplelog::{ColorChoice, ConfigBuilder, TermLogger, TerminalMode};
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::ControlFlow,
+};
+
+fn main() -> Result<()> {
+    init_logger()?;
+
+    let (window, event_loop) = create_window()?;
+
+    let mut renderer = Renderer::new(&window).context("Renderer creation failed")?;
+
+    event_loop.run(move |event, _, control_flow| match event {
+        Event::WindowEvent { event, .. } => match event {
+            WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+            WindowEvent::Resized(_) =>
+            {
+                #[allow(clippy::unwrap_used)]
+                renderer
+                    .recreate_swapchain(&window)
+                    .context("Swapchain recreation failed")
+                    .unwrap()
+            }
+            _ => (),
+        },
+        Event::MainEventsCleared => {
+            #[allow(clippy::unwrap_used)]
+            renderer
+                .render(&window)
+                .context("Rendering failed")
+                .unwrap();
+        }
+
+        _ => (),
+    });
+}
+
+fn init_logger() -> Result<()> {
+    let config = ConfigBuilder::new()
+        .set_time_level(LevelFilter::Off)
+        .build();
     TermLogger::init(
         LevelFilter::Trace,
-        Config::default(),
+        config,
         TerminalMode::Mixed,
         ColorChoice::Auto,
     )
-    .expect("Failed to initialize logger");
-
-    let entry = Entry::linked();
-    let app_info = vk::ApplicationInfo {
-        api_version: vk::make_api_version(0, 1, 0, 0),
-        ..Default::default()
-    };
-    let create_info = vk::InstanceCreateInfo {
-        p_application_info: &app_info,
-        ..Default::default()
-    };
-    let instance = unsafe {
-        entry
-            .create_instance(&create_info, None)
-            .expect("Instance creation fialed")
-    };
-    let devices = unsafe {
-        instance
-            .enumerate_physical_devices()
-            .expect("Physical device enumeration failed")
-    };
-    let devices = devices
-        .iter()
-        .map(|d| unsafe { instance.get_physical_device_properties(Clone::clone(d)) });
-    debug!("{:#?}", devices.collect::<Vec<_>>());
+    .context("Failed to initialize logger")
 }

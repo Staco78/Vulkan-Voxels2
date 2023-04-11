@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.70"
-ash = { version = "0.37.2", features = ["linked"] }
 log = "0.4.17"
 simplelog = "0.12.1"
+vulkanalia = { version = "0.18.0", features = ["libloading", "window"] }
 winit = "0.28.3"
