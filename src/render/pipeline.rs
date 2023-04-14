@@ -6,8 +6,8 @@ use vulkanalia::vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, Shader
 use crate::utils::{self, drop_then_new};
 
 use super::{
-    camera::UniformBufferObject, devices::DEVICE, swapchain::Swapchain, uniform::Uniforms,
-    vertex::Vertex,
+    camera::UniformBufferObject, depth::DepthBuffer, devices::DEVICE, swapchain::Swapchain,
+    uniform::Uniforms, vertex::Vertex,
 };
 
 macro_rules! shader_module {
@@ -30,7 +30,11 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(swapchain: &Swapchain, uniforms: &Uniforms<UniformBufferObject>) -> Result<Self> {
+    pub fn new(
+        physical_device: vk::PhysicalDevice,
+        swapchain: &Swapchain,
+        uniforms: &Uniforms<UniformBufferObject>,
+    ) -> Result<Self> {
         let frag_module = shader_module!("shader.frag")?;
         let vert_module = shader_module!("shader.vert")?;
 
@@ -86,6 +90,12 @@ impl Pipeline {
             .logic_op(vk::LogicOp::COPY)
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
+        let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false);
 
         let layouts = [uniforms.descriptor_layout];
         let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&layouts);
@@ -95,7 +105,8 @@ impl Pipeline {
                 .context("Pipeline layout creation failed")?
         };
 
-        let render_pass = create_render_pass(swapchain).context("Render pass creation failed")?;
+        let render_pass = create_render_pass(physical_device, swapchain)
+            .context("Render pass creation failed")?;
 
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::builder()
@@ -108,7 +119,8 @@ impl Pipeline {
             .color_blend_state(&color_blend_state)
             .layout(layout)
             .render_pass(render_pass)
-            .subpass(0);
+            .subpass(0)
+            .depth_stencil_state(&depth_stencil_state);
 
         let pipeline =
             unsafe { DEVICE.create_graphics_pipelines(PipelineCache::null(), &[info], None) }
@@ -130,10 +142,11 @@ impl Pipeline {
     #[inline]
     pub fn recreate(
         &mut self,
+        physical_device: vk::PhysicalDevice,
         swapchain: &Swapchain,
         uniforms: &Uniforms<UniformBufferObject>,
     ) -> Result<()> {
-        drop_then_new(self, || Self::new(swapchain, uniforms))
+        drop_then_new(self, || Self::new(physical_device, swapchain, uniforms))
     }
 }
 
@@ -156,7 +169,10 @@ fn create_shader_module(bytes: &[u32]) -> Result<vk::ShaderModule> {
     Ok(module)
 }
 
-fn create_render_pass(swapchain: &Swapchain) -> Result<vk::RenderPass> {
+fn create_render_pass(
+    physical_device: vk::PhysicalDevice,
+    swapchain: &Swapchain,
+) -> Result<vk::RenderPass> {
     let color_attachment = vk::AttachmentDescription::builder()
         .format(swapchain.format.format)
         .samples(vk::SampleCountFlags::_1)
@@ -171,20 +187,47 @@ fn create_render_pass(swapchain: &Swapchain) -> Result<vk::RenderPass> {
         .attachment(0)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
 
+    let depth_stencil_attachment = vk::AttachmentDescription::builder()
+        .format(
+            DepthBuffer::get_format(physical_device)
+                .context("No valid depth buffer format found")?,
+        )
+        .samples(vk::SampleCountFlags::_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+    let depth_stencil_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(1)
+        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
     let color_attachments = &[color_attachment_ref];
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(color_attachments);
+        .color_attachments(color_attachments)
+        .depth_stencil_attachment(&depth_stencil_attachment_ref);
 
     let dependency = vk::SubpassDependency::builder()
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
-        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        )
         .src_access_mask(vk::AccessFlags::empty())
-        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+        .dst_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        )
+        .dst_access_mask(
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        );
 
-    let attachments = &[color_attachment];
+    let attachments = &[color_attachment, depth_stencil_attachment];
     let subpasses = &[subpass];
     let dependencies = &[dependency];
     let info = vk::RenderPassCreateInfo::builder()

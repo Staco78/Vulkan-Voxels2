@@ -2,6 +2,7 @@ mod buffer;
 mod camera;
 mod commands;
 mod config;
+mod depth;
 mod devices;
 mod framebuffers;
 mod image;

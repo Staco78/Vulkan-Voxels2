@@ -15,6 +15,7 @@ use super::{
     buffer::Buffer,
     camera::Camera,
     commands::{CommandBuffer, CommandPool},
+    depth::DepthBuffer,
     devices::{self, DEVICE},
     framebuffers::Framebuffers,
     instance::Instance,
@@ -38,6 +39,7 @@ pub struct Renderer {
     command_buffers: Vec<CommandBuffer>,
     command_pool: CommandPool,
     framebuffers: Framebuffers,
+    depth_buffer: DepthBuffer,
     pipeline: Pipeline,
     uniforms: Uniforms<UniformBufferObject>,
     swapchain: Swapchain,
@@ -64,8 +66,11 @@ impl Renderer {
             .context("Swapchain creation failed")?;
         let uniforms = Uniforms::<UniformBufferObject>::new(swapchain.images.len())
             .context("Uniforms creation failed")?;
-        let pipeline = Pipeline::new(&swapchain, &uniforms).context("Pipeline creation failed")?;
-        let framebuffers = Framebuffers::new(&swapchain, &pipeline)?;
+        let pipeline = Pipeline::new(physical_device, &swapchain, &uniforms)
+            .context("Pipeline creation failed")?;
+        let depth_buffer = DepthBuffer::new(physical_device, &swapchain)
+            .context("Depth buffer creation failed")?;
+        let framebuffers = Framebuffers::new(&swapchain, &pipeline, &depth_buffer)?;
         let command_pool = CommandPool::new(physical_device)?;
         let command_buffers = command_pool
             .alloc_buffers(framebuffers.count())
@@ -75,12 +80,18 @@ impl Renderer {
         let in_flight_fences = Fences::new(MAX_FRAMES_IN_FLIGHT, true)?;
         let images_in_flight = Fences::from_vec(vec![vk::Fence::null(); swapchain.images.len()]);
         let vertices = [
-            Vertex::new(glm::vec2(-0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
-            Vertex::new(glm::vec2(0.5, -0.5), glm::vec3(0.0, 1.0, 0.0)),
-            Vertex::new(glm::vec2(0.5, 0.5), glm::vec3(0.0, 0.0, 1.0)),
-            Vertex::new(glm::vec2(0.5, 0.5), glm::vec3(0.0, 0.0, 1.0)),
-            Vertex::new(glm::vec2(-0.5, 0.5), glm::vec3(1.0, 1.0, 1.0)),
-            Vertex::new(glm::vec2(-0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
+            Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(1.0, 0.0, 0.0)),
+            Vertex::new(glm::vec3(0.5, -0.5, 0.0), glm::vec3(0.0, 1.0, 0.0)),
+            Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 1.0)),
+            Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 1.0)),
+            Vertex::new(glm::vec3(-0.5, 0.5, 0.0), glm::vec3(1.0, 1.0, 1.0)),
+            Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(1.0, 0.0, 0.0)),
+            Vertex::new(glm::vec3(-0.5, -0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
+            Vertex::new(glm::vec3(0.5, -0.5, -0.5), glm::vec3(0.0, 1.0, 0.0)),
+            Vertex::new(glm::vec3(0.5, 0.5, -0.5), glm::vec3(0.0, 0.0, 1.0)),
+            Vertex::new(glm::vec3(0.5, 0.5, -0.5), glm::vec3(0.0, 0.0, 1.0)),
+            Vertex::new(glm::vec3(-0.5, 0.5, -0.5), glm::vec3(1.0, 1.0, 1.0)),
+            Vertex::new(glm::vec3(-0.5, -0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
         ];
         let mut vertex_buffer =
             Buffer::new(size_of_val(&vertices), vk::BufferUsageFlags::VERTEX_BUFFER)
@@ -97,6 +108,7 @@ impl Renderer {
             swapchain,
             uniforms,
             pipeline,
+            depth_buffer,
             framebuffers,
             command_pool,
             command_buffers,
@@ -128,7 +140,13 @@ impl Renderer {
                     float32: [0.0, 0.0, 0.0, 1.0],
                 },
             };
-            let clear_values = &[color_clear_value];
+            let depth_clear_value = vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            };
+            let clear_values = &[color_clear_value, depth_clear_value];
             let info = vk::RenderPassBeginInfo::builder()
                 .render_pass(self.pipeline.render_pass)
                 .framebuffer(self.framebuffers[i])
@@ -155,7 +173,7 @@ impl Renderer {
                     &[self.uniforms[i].descriptor_set],
                     &[],
                 );
-                DEVICE.cmd_draw(buffer.buffer, 6, 1, 0, 0);
+                DEVICE.cmd_draw(buffer.buffer, 12, 1, 0, 0);
                 DEVICE.cmd_end_render_pass(buffer.buffer);
             };
 
@@ -256,11 +274,14 @@ impl Renderer {
         self.swapchain
             .recreate(self.physical_device, window, *self.surface)
             .context("New swapchain creation failed")?;
+        self.depth_buffer
+            .recreate(self.physical_device, &self.swapchain)
+            .context("Depth buffer recreation failed")?;
         self.pipeline
-            .recreate(&self.swapchain, &self.uniforms)
+            .recreate(self.physical_device, &self.swapchain, &self.uniforms)
             .context("Pipeline recreation failed")?;
         self.framebuffers
-            .recreate(&self.swapchain, &self.pipeline)
+            .recreate(&self.swapchain, &self.pipeline, &self.depth_buffer)
             .context("Framebuffers recreation failed")?;
         self.command_pool
             .realloc_buffers(&mut self.command_buffers, self.framebuffers.count())

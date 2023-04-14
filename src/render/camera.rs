@@ -35,7 +35,7 @@ impl Camera {
             &glm::vec3(0.0, 0.0, 0.0),
             &glm::vec3(0.0, 0.0, 1.0),
         );
-        let mut proj = glm::perspective(
+        let mut proj = glm::perspective_rh_zo(
             swapchain_extent.width as f32 / swapchain_extent.height as f32,
             glm::radians(&glm::vec1(45.0))[0],
             0.1,
