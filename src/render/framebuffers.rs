@@ -41,7 +41,12 @@ impl Framebuffers {
     }
 
     #[inline]
-    pub fn recreate(&mut self, device: &Device, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<()> {
+    pub fn recreate(
+        &mut self,
+        device: &Device,
+        swapchain: &Swapchain,
+        pipeline: &Pipeline,
+    ) -> Result<()> {
         self.destroy(device);
         let new = Self::new(device, swapchain, pipeline)?;
         *self = new;

@@ -1,15 +1,18 @@
+mod buffer;
+mod commands;
 mod config;
 mod devices;
+mod framebuffers;
 mod image;
 mod instance;
+mod memory;
+mod pipeline;
 mod queues;
 mod renderer;
 mod swapchain;
-mod window;
-mod pipeline;
-mod framebuffers;
-mod commands;
 mod sync;
+mod vertex;
+mod window;
 
 pub use renderer::Renderer;
 pub use window::create_window;

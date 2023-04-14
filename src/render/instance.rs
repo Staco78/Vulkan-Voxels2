@@ -1,4 +1,7 @@
-use std::ffi::{c_void, CStr};
+use std::{
+    ffi::{c_void, CStr},
+    ops::Deref,
+};
 
 use anyhow::{Context, Result};
 
@@ -6,7 +9,7 @@ use log::{debug, error, trace, warn};
 use vulkanalia::{
     vk::{
         self, ApplicationInfo, DebugUtilsMessengerCreateInfoEXT, DebugUtilsMessengerEXT,
-        ExtDebugUtilsExtension, HasBuilder, InstanceCreateInfo,
+        ExtDebugUtilsExtension, HasBuilder, InstanceCreateInfo, InstanceV1_0,
     },
     Entry,
 };
@@ -14,72 +17,100 @@ use winit::window::Window;
 
 use crate::render::config::{VALIDATION_ENABLED, VALIDATION_LAYERS};
 
-pub fn create_instance(
-    entry: &Entry,
-    window: &Window,
-) -> Result<(vulkanalia::Instance, Option<DebugUtilsMessengerEXT>)> {
-    let app_version = {
-        let major = env!("CARGO_PKG_VERSION_MAJOR")
-            .parse()
-            .expect("CARGO_PKG_VERSION_MAJOR isn't a number");
-        let minor = env!("CARGO_PKG_VERSION_MINOR")
-            .parse()
-            .expect("CARGO_PKG_VERSION_MINOR isn't a number");
-        let patch = env!("CARGO_PKG_VERSION_PATCH")
-            .parse()
-            .expect("CARGO_PKG_VERSION_PATCH isn't a number");
-        vk::make_version(major, minor, patch)
-    };
-    let app_info = ApplicationInfo::builder()
-        .api_version(vk::make_version(1, 0, 0))
-        .application_name(b"Vulkan Voxels 2\0")
-        .application_version(app_version);
+#[derive(Debug)]
+pub struct Instance {
+    instance: vulkanalia::Instance,
+    debug_messenger: Option<DebugUtilsMessengerEXT>,
+}
 
-    let layers = if VALIDATION_ENABLED {
-        VALIDATION_LAYERS
-    } else {
-        &[]
-    };
-    let mut extensions = vulkanalia::window::get_required_instance_extensions(window)
-        .iter()
-        .map(|&ext| ext.as_ptr())
-        .collect::<Vec<_>>();
-    if VALIDATION_ENABLED {
-        extensions.push(vk::EXT_DEBUG_UTILS_EXTENSION.name.as_ptr())
+impl Deref for Instance {
+    type Target = vulkanalia::Instance;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.instance
     }
+}
 
-    let mut debug_messenger_create_info = DebugUtilsMessengerCreateInfoEXT::builder()
-        .message_severity(
-            vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING, // | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
-        )
-        .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
-        .user_callback(Some(debug_callback));
-
-    let instance_create_info = InstanceCreateInfo::builder()
-        .application_info(&app_info)
-        .enabled_layer_names(layers)
-        .enabled_extension_names(&extensions)
-        .push_next(&mut debug_messenger_create_info);
-
-    let instance = unsafe { entry.create_instance(&instance_create_info, None) }
-        .context("Vulkan instance creation failed")?;
-
-    let debug_messenger = if VALIDATION_ENABLED {
-        match unsafe {
-            instance.create_debug_utils_messenger_ext(&debug_messenger_create_info, None)
-        } {
-            Ok(messenger) => Some(messenger),
-            Err(e) => {
-                warn!("Debug utils messenger creation failed: {e}");
-                None
+impl Drop for Instance {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(messenger) = self.debug_messenger {
+                self.instance
+                    .destroy_debug_utils_messenger_ext(messenger, None);
             }
+            self.instance.destroy_instance(None);
         }
-    } else {
-        None
-    };
+    }
+}
 
-    Ok((instance, debug_messenger))
+impl Instance {
+    pub fn new(entry: &Entry, window: &Window) -> Result<Self> {
+        let app_version = {
+            let major = env!("CARGO_PKG_VERSION_MAJOR")
+                .parse()
+                .expect("CARGO_PKG_VERSION_MAJOR isn't a number");
+            let minor = env!("CARGO_PKG_VERSION_MINOR")
+                .parse()
+                .expect("CARGO_PKG_VERSION_MINOR isn't a number");
+            let patch = env!("CARGO_PKG_VERSION_PATCH")
+                .parse()
+                .expect("CARGO_PKG_VERSION_PATCH isn't a number");
+            vk::make_version(major, minor, patch)
+        };
+        let app_info = ApplicationInfo::builder()
+            .api_version(vk::make_version(1, 0, 0))
+            .application_name(b"Vulkan Voxels 2\0")
+            .application_version(app_version);
+
+        let layers = if VALIDATION_ENABLED {
+            VALIDATION_LAYERS
+        } else {
+            &[]
+        };
+        let mut extensions = vulkanalia::window::get_required_instance_extensions(window)
+            .iter()
+            .map(|&ext| ext.as_ptr())
+            .collect::<Vec<_>>();
+        if VALIDATION_ENABLED {
+            extensions.push(vk::EXT_DEBUG_UTILS_EXTENSION.name.as_ptr())
+        }
+
+        let mut debug_messenger_create_info = DebugUtilsMessengerCreateInfoEXT::builder()
+            .message_severity(
+                vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING, // | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
+            )
+            .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
+            .user_callback(Some(debug_callback));
+
+        let instance_create_info = InstanceCreateInfo::builder()
+            .application_info(&app_info)
+            .enabled_layer_names(layers)
+            .enabled_extension_names(&extensions)
+            .push_next(&mut debug_messenger_create_info);
+
+        let instance = unsafe { entry.create_instance(&instance_create_info, None) }
+            .context("Vulkan instance creation failed")?;
+
+        let debug_messenger = if VALIDATION_ENABLED {
+            match unsafe {
+                instance.create_debug_utils_messenger_ext(&debug_messenger_create_info, None)
+            } {
+                Ok(messenger) => Some(messenger),
+                Err(e) => {
+                    warn!("Debug utils messenger creation failed: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        Ok(Self {
+            instance,
+            debug_messenger,
+        })
+    }
 }
 
 extern "system" fn debug_callback(

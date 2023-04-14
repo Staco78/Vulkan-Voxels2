@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::mem::size_of_val;
 
 use anyhow::{Context, Result};
 use vulkanalia::{
@@ -8,7 +8,7 @@ use vulkanalia::{
 
 use crate::utils;
 
-use super::swapchain::Swapchain;
+use super::{swapchain::Swapchain, vertex::Vertex};
 
 macro_rules! shader_module {
     ($device: ident, $file: expr) => {
@@ -43,7 +43,11 @@ impl Pipeline {
             .module(frag_module)
             .name(b"main\0");
 
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+        let binding_descriptions = &[Vertex::binding_description()];
+        let attribute_descriptions = Vertex::attribute_descriptions();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_attribute_descriptions(&attribute_descriptions);
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
@@ -143,7 +147,7 @@ impl Pipeline {
 fn create_shader_module(device: &Device, bytes: &[u32]) -> Result<vk::ShaderModule> {
     let info = ShaderModuleCreateInfo::builder()
         .code(bytes)
-        .code_size(bytes.len() * size_of::<u32>());
+        .code_size(size_of_val(bytes));
     let module = unsafe { device.create_shader_module(&info, None) }
         .context("Shader module creation failed")?;
     Ok(module)

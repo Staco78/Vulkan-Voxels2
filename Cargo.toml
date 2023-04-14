@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.70"
 log = "0.4.17"
+memoffset = "0.8.0"
+nalgebra-glm = "0.18.0"
 simplelog = "0.12.1"
 vulkanalia = { version = "0.18.0", features = ["libloading", "window"] }
 winit = "0.28.3"

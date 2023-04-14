@@ -1,49 +1,53 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, mem::size_of_val};
 
 use anyhow::{anyhow, Context, Result};
+use log::debug;
+use nalgebra_glm as glm;
 use vulkanalia::{
     loader::{LibloadingLoader, LIBRARY},
     vk::{
-        self, DebugUtilsMessengerEXT, DeviceV1_0, ExtDebugUtilsExtension, Handle, HasBuilder,
-        InstanceV1_0, KhrSurfaceExtension, KhrSwapchainExtension, SurfaceKHR,
+        self, DeviceV1_0, Handle, HasBuilder, KhrSurfaceExtension, KhrSwapchainExtension,
+        SurfaceKHR,
     },
     window::create_surface,
-    Entry, Instance,
+    Entry,
 };
 use winit::window::Window;
 
-use crate::render::{devices::create_device_and_queues, instance::create_instance};
+use crate::render::devices::Device;
 
 use super::{
+    buffer::Buffer,
     commands::{CommandBuffer, CommandPool},
     devices::{self},
     framebuffers::Framebuffers,
+    instance::Instance,
+    memory::init_allocator,
     pipeline::Pipeline,
     swapchain::Swapchain,
     sync::{Fences, Semaphores},
+    vertex::Vertex,
 };
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive(Debug)]
 pub struct Renderer {
-    _entry: Entry,
-    instance: Instance,
-    debug_messenger: Option<DebugUtilsMessengerEXT>,
-    surface: SurfaceKHR,
-    physical_device: vk::PhysicalDevice,
-    device: vulkanalia::Device,
-    graphics_queue: vk::Queue,
-    present_queue: vk::Queue,
-    swapchain: Swapchain,
-    pipeline: Pipeline,
-    framebuffers: Framebuffers,
-    command_pool: CommandPool,
-    command_buffers: Vec<CommandBuffer>,
-    image_available_semaphores: Semaphores,
-    render_finished_semaphores: Semaphores,
-    in_flight_fences: Fences,
+    vertex_buffer: Buffer,
     images_in_flight: Fences,
+    in_flight_fences: Fences,
+    render_finished_semaphores: Semaphores,
+    image_available_semaphores: Semaphores,
+    command_buffers: Vec<CommandBuffer>,
+    command_pool: CommandPool,
+    framebuffers: Framebuffers,
+    pipeline: Pipeline,
+    swapchain: Swapchain,
+    device: Device,
+    physical_device: vk::PhysicalDevice,
+    surface: SurfaceKHR,
+    instance: Instance,
+    _entry: Entry,
 
     frame: usize,
 }
@@ -53,15 +57,14 @@ impl Renderer {
         let loader = unsafe { LibloadingLoader::new(LIBRARY) }
             .with_context(|| format!("{} not found", LIBRARY))?;
         let entry = unsafe { Entry::new(loader) }.expect("Entry creation");
-        let (instance, debug_messenger) =
-            create_instance(&entry, window).context("Instance creation failed")?;
+        let instance = Instance::new(&entry, window).context("Instance creation failed")?;
         let surface = unsafe { create_surface(&instance, window, window) }
             .context("Surface creation failed")?;
         let physical_device = devices::pick_physical(&instance, surface)
             .context("Physical device selection failed")?;
-        let (device, graphics_queue, present_queue) =
-            create_device_and_queues(&instance, physical_device, surface)
-                .context("Device creation failed")?;
+        let device =
+            Device::new(&instance, physical_device, surface).context("Device creation failed")?;
+        init_allocator(&device, &instance, physical_device);
         let swapchain = Swapchain::new(&instance, physical_device, &device, window, surface)
             .context("Swapchain creation failed")?;
         let pipeline = Pipeline::new(&device, &swapchain).context("Pipeline creation failed")?;
@@ -74,16 +77,28 @@ impl Renderer {
         let render_finished_semaphores = Semaphores::new(&device, MAX_FRAMES_IN_FLIGHT)?;
         let in_flight_fences = Fences::new(&device, MAX_FRAMES_IN_FLIGHT, true)?;
         let images_in_flight = Fences::from_vec(vec![vk::Fence::null(); swapchain.images.len()]);
+        let vertices = [
+            Vertex::new(glm::vec2(0.0, -0.5), glm::vec3(1.0, 0.0, 0.0)),
+            Vertex::new(glm::vec2(0.5, 0.5), glm::vec3(0.0, 1.0, 0.0)),
+            Vertex::new(glm::vec2(-0.5, 0.5), glm::vec3(0.0, 0.0, 1.0)),
+        ];
+        let mut vertex_buffer = Buffer::create(
+            &device,
+            size_of_val(&vertices),
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+        )
+        .context("Vertex buffer creation failed")?;
+        vertex_buffer
+            .fill(&device, &vertices)
+            .context("Vertex buffer filling failed")?;
+        debug!("{} {}", size_of_val(&vertices), size_of_val(&vertices));
 
         let mut s = Self {
             _entry: entry,
             instance,
-            debug_messenger,
             surface,
             physical_device,
             device,
-            graphics_queue,
-            present_queue,
             swapchain,
             pipeline,
             framebuffers,
@@ -93,6 +108,7 @@ impl Renderer {
             render_finished_semaphores,
             in_flight_fences,
             images_in_flight,
+            vertex_buffer,
 
             frame: 0,
         };
@@ -133,6 +149,12 @@ impl Renderer {
                     buffer.buffer,
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline.pipeline,
+                );
+                self.device.cmd_bind_vertex_buffers(
+                    buffer.buffer,
+                    0,
+                    &[self.vertex_buffer.buffer],
+                    &[0],
                 );
                 self.device.cmd_draw(buffer.buffer, 3, 1, 0, 0);
                 self.device.cmd_end_render_pass(buffer.buffer);
@@ -205,7 +227,7 @@ impl Renderer {
 
             self.device
                 .queue_submit(
-                    self.graphics_queue,
+                    self.device.graphics_queue,
                     &[submit_info],
                     self.in_flight_fences[self.frame],
                 )
@@ -221,7 +243,7 @@ impl Renderer {
 
         let result = unsafe {
             self.device
-                .queue_present_khr(self.present_queue, &present_info)
+                .queue_present_khr(self.device.present_queue, &present_info)
         };
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
@@ -275,6 +297,7 @@ impl Drop for Renderer {
         unsafe {
             let _ = self.device.device_wait_idle();
         }
+        self.vertex_buffer.destroy(&self.device);
         self.in_flight_fences.destroy(&self.device);
         self.render_finished_semaphores.destroy(&self.device);
         self.image_available_semaphores.destroy(&self.device);
@@ -283,13 +306,7 @@ impl Drop for Renderer {
         self.pipeline.destroy(&self.device);
         self.swapchain.destroy(&self.device);
         unsafe {
-            self.device.destroy_device(None);
             self.instance.destroy_surface_khr(self.surface, None);
-            if let Some(messenger) = self.debug_messenger {
-                self.instance
-                    .destroy_debug_utils_messenger_ext(messenger, None);
-            }
-            self.instance.destroy_instance(None);
         }
     }
 }

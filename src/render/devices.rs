@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::Deref};
 
 use anyhow::{bail, Context, Result};
 use log::{info, warn};
@@ -145,55 +145,83 @@ fn score_device(_device: vk::PhysicalDevice, props: PhysicalDeviceProperties) ->
     score
 }
 
-pub fn create_device_and_queues(
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    surface: vk::SurfaceKHR,
-) -> Result<(vulkanalia::Device, vk::Queue, vk::Queue)> {
-    let graphics_queue_family = get_queue_family(instance, physical_device, QueueFlags::GRAPHICS)?
-        .context("No graphics queue found")?;
-    let present_queue_family = get_present_queue_family(instance, physical_device, surface)?
-        .context("No present queue found")?;
+#[derive(Debug)]
+pub struct Device {
+    pub device: vulkanalia::Device,
+    pub graphics_queue: vk::Queue,
+    pub present_queue: vk::Queue,
+}
 
-    let priority = &[1.0];
+impl Deref for Device {
+    type Target = vulkanalia::Device;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.device
+    }
+}
 
-    let queue_create_infos = if graphics_queue_family == present_queue_family {
-        let info = DeviceQueueCreateInfo::builder()
-            .queue_family_index(graphics_queue_family)
-            .queue_priorities(priority)
-            .build();
-        vec![info]
-    } else {
-        let graphics_info = DeviceQueueCreateInfo::builder()
-            .queue_family_index(graphics_queue_family)
-            .queue_priorities(priority)
-            .build();
-        let transfer_info = DeviceQueueCreateInfo::builder()
-            .queue_family_index(present_queue_family)
-            .queue_priorities(priority)
-            .build();
-        vec![graphics_info, transfer_info]
-    };
+impl Drop for Device {
+    fn drop(&mut self) {
+        unsafe { self.destroy_device(None) };
+    }
+}
 
-    let extensions = DEVICE_REQUIRED_EXTENSIONS
-        .iter()
-        .map(|ext| ext.name.as_ptr())
-        .collect::<Vec<_>>();
+impl Device {
+    pub fn new(
+        instance: &Instance,
+        physical_device: vk::PhysicalDevice,
+        surface: vk::SurfaceKHR,
+    ) -> Result<Self> {
+        let graphics_queue_family =
+            get_queue_family(instance, physical_device, QueueFlags::GRAPHICS)?
+                .context("No graphics queue found")?;
+        let present_queue_family = get_present_queue_family(instance, physical_device, surface)?
+            .context("No present queue found")?;
 
-    let layers = if VALIDATION_ENABLED {
-        VALIDATION_LAYERS
-    } else {
-        &[]
-    };
+        let priority = &[1.0];
 
-    let create_info = DeviceCreateInfo::builder()
-        .queue_create_infos(&queue_create_infos)
-        .enabled_layer_names(layers)
-        .enabled_extension_names(&extensions);
+        let queue_create_infos = if graphics_queue_family == present_queue_family {
+            let info = DeviceQueueCreateInfo::builder()
+                .queue_family_index(graphics_queue_family)
+                .queue_priorities(priority)
+                .build();
+            vec![info]
+        } else {
+            let graphics_info = DeviceQueueCreateInfo::builder()
+                .queue_family_index(graphics_queue_family)
+                .queue_priorities(priority)
+                .build();
+            let transfer_info = DeviceQueueCreateInfo::builder()
+                .queue_family_index(present_queue_family)
+                .queue_priorities(priority)
+                .build();
+            vec![graphics_info, transfer_info]
+        };
 
-    let device = unsafe { instance.create_device(physical_device, &create_info, None) }?;
-    let graphics_queue = unsafe { device.get_device_queue(graphics_queue_family, 0) };
-    let present_queue = unsafe { device.get_device_queue(present_queue_family, 0) };
+        let extensions = DEVICE_REQUIRED_EXTENSIONS
+            .iter()
+            .map(|ext| ext.name.as_ptr())
+            .collect::<Vec<_>>();
 
-    Ok((device, graphics_queue, present_queue))
+        let layers = if VALIDATION_ENABLED {
+            VALIDATION_LAYERS
+        } else {
+            &[]
+        };
+
+        let create_info = DeviceCreateInfo::builder()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_layer_names(layers)
+            .enabled_extension_names(&extensions);
+
+        let device = unsafe { instance.create_device(physical_device, &create_info, None) }?;
+        let graphics_queue = unsafe { device.get_device_queue(graphics_queue_family, 0) };
+        let present_queue = unsafe { device.get_device_queue(present_queue_family, 0) };
+
+        Ok(Self {
+            device,
+            graphics_queue,
+            present_queue,
+        })
+    }
 }
