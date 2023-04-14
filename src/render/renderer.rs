@@ -1,7 +1,6 @@
 use std::{fmt::Debug, mem::size_of_val};
 
 use anyhow::{anyhow, Context, Result};
-use log::debug;
 use nalgebra_glm as glm;
 use vulkanalia::{
     loader::{LibloadingLoader, LIBRARY},
@@ -10,10 +9,11 @@ use vulkanalia::{
 };
 use winit::window::Window;
 
-use crate::render::devices::Device;
+use crate::render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms};
 
 use super::{
     buffer::Buffer,
+    camera::Camera,
     commands::{CommandBuffer, CommandPool},
     devices::{self, DEVICE},
     framebuffers::Framebuffers,
@@ -39,12 +39,14 @@ pub struct Renderer {
     command_pool: CommandPool,
     framebuffers: Framebuffers,
     pipeline: Pipeline,
+    uniforms: Uniforms<UniformBufferObject>,
     swapchain: Swapchain,
     physical_device: vk::PhysicalDevice,
     surface: Surface,
     _entry: Entry,
 
     frame: usize,
+    camera: Camera,
 }
 
 impl Renderer {
@@ -60,7 +62,9 @@ impl Renderer {
         init_allocator(physical_device);
         let swapchain = Swapchain::new(physical_device, window, *surface)
             .context("Swapchain creation failed")?;
-        let pipeline = Pipeline::new(&swapchain).context("Pipeline creation failed")?;
+        let uniforms = Uniforms::<UniformBufferObject>::new(swapchain.images.len())
+            .context("Uniforms creation failed")?;
+        let pipeline = Pipeline::new(&swapchain, &uniforms).context("Pipeline creation failed")?;
         let framebuffers = Framebuffers::new(&swapchain, &pipeline)?;
         let command_pool = CommandPool::new(physical_device)?;
         let command_buffers = command_pool
@@ -71,23 +75,27 @@ impl Renderer {
         let in_flight_fences = Fences::new(MAX_FRAMES_IN_FLIGHT, true)?;
         let images_in_flight = Fences::from_vec(vec![vk::Fence::null(); swapchain.images.len()]);
         let vertices = [
-            Vertex::new(glm::vec2(0.0, -0.5), glm::vec3(1.0, 0.0, 0.2)),
-            Vertex::new(glm::vec2(0.5, 0.5), glm::vec3(0.0, 1.0, 0.8)),
-            Vertex::new(glm::vec2(-0.5, 0.5), glm::vec3(0.3, 0.0, 1.0)),
+            Vertex::new(glm::vec2(-0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
+            Vertex::new(glm::vec2(0.5, -0.5), glm::vec3(0.0, 1.0, 0.0)),
+            Vertex::new(glm::vec2(0.5, 0.5), glm::vec3(0.0, 0.0, 1.0)),
+            Vertex::new(glm::vec2(0.5, 0.5), glm::vec3(0.0, 0.0, 1.0)),
+            Vertex::new(glm::vec2(-0.5, 0.5), glm::vec3(1.0, 1.0, 1.0)),
+            Vertex::new(glm::vec2(-0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
         ];
         let mut vertex_buffer =
-            Buffer::create(size_of_val(&vertices), vk::BufferUsageFlags::VERTEX_BUFFER)
+            Buffer::new(size_of_val(&vertices), vk::BufferUsageFlags::VERTEX_BUFFER)
                 .context("Vertex buffer creation failed")?;
         vertex_buffer
             .fill(&vertices)
             .context("Vertex buffer filling failed")?;
-        debug!("{} {}", size_of_val(&vertices), size_of_val(&vertices));
+        let camera = Camera::new();
 
         let mut s = Self {
             _entry: entry,
             surface,
             physical_device,
             swapchain,
+            uniforms,
             pipeline,
             framebuffers,
             command_pool,
@@ -99,6 +107,7 @@ impl Renderer {
             vertex_buffer,
 
             frame: 0,
+            camera,
         };
 
         s.record_commands().context("Commands recording failed")?;
@@ -138,7 +147,15 @@ impl Renderer {
                     &[self.vertex_buffer.buffer],
                     &[0],
                 );
-                DEVICE.cmd_draw(buffer.buffer, 3, 1, 0, 0);
+                DEVICE.cmd_bind_descriptor_sets(
+                    buffer.buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline.layout,
+                    0,
+                    &[self.uniforms[i].descriptor_set],
+                    &[],
+                );
+                DEVICE.cmd_draw(buffer.buffer, 6, 1, 0, 0);
                 DEVICE.cmd_end_render_pass(buffer.buffer);
             };
 
@@ -185,6 +202,8 @@ impl Renderer {
         }
 
         self.images_in_flight[image_index as usize] = self.in_flight_fences[self.frame];
+
+        self.uniforms[image_index as usize].write(self.camera.ubo(self.swapchain.extent));
 
         let wait_semaphores = &[self.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -238,7 +257,7 @@ impl Renderer {
             .recreate(self.physical_device, window, *self.surface)
             .context("New swapchain creation failed")?;
         self.pipeline
-            .recreate(&self.swapchain)
+            .recreate(&self.swapchain, &self.uniforms)
             .context("Pipeline recreation failed")?;
         self.framebuffers
             .recreate(&self.swapchain, &self.pipeline)

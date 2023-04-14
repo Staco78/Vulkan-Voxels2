@@ -5,7 +5,10 @@ use vulkanalia::vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, Shader
 
 use crate::utils::{self, drop_then_new};
 
-use super::{devices::DEVICE, swapchain::Swapchain, vertex::Vertex};
+use super::{
+    camera::UniformBufferObject, devices::DEVICE, swapchain::Swapchain, uniform::Uniforms,
+    vertex::Vertex,
+};
 
 macro_rules! shader_module {
     ($file: expr) => {
@@ -27,7 +30,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(swapchain: &Swapchain) -> Result<Self> {
+    pub fn new(swapchain: &Swapchain, uniforms: &Uniforms<UniformBufferObject>) -> Result<Self> {
         let frag_module = shader_module!("shader.frag")?;
         let vert_module = shader_module!("shader.vert")?;
 
@@ -69,7 +72,7 @@ impl Pipeline {
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
@@ -84,7 +87,8 @@ impl Pipeline {
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        let layout_info = vk::PipelineLayoutCreateInfo::builder();
+        let layouts = [uniforms.descriptor_layout];
+        let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&layouts);
         let layout = unsafe {
             DEVICE
                 .create_pipeline_layout(&layout_info, None)
@@ -124,8 +128,12 @@ impl Pipeline {
     }
 
     #[inline]
-    pub fn recreate(&mut self, swapchain: &Swapchain) -> Result<()> {
-        drop_then_new(self, || Self::new(swapchain))
+    pub fn recreate(
+        &mut self,
+        swapchain: &Swapchain,
+        uniforms: &Uniforms<UniformBufferObject>,
+    ) -> Result<()> {
+        drop_then_new(self, || Self::new(swapchain, uniforms))
     }
 }
 

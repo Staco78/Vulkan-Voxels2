@@ -1,4 +1,5 @@
 mod buffer;
+mod camera;
 mod commands;
 mod config;
 mod devices;
@@ -12,6 +13,7 @@ mod renderer;
 mod surface;
 mod swapchain;
 mod sync;
+mod uniform;
 mod vertex;
 mod window;
 

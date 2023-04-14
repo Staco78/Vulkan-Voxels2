@@ -61,7 +61,7 @@ pub fn pick_physical(surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
     };
 
     let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) };
-    info!("Selected device is {:?}", name);
+    info!("Selected device {:?}", name);
 
     Ok(device)
 }
