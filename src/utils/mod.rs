@@ -1,9 +1,10 @@
 mod deref_once_lock;
+use anyhow::Result;
 pub use deref_once_lock::DerefOnceLock;
 
 use std::{
     mem::{size_of, size_of_val, MaybeUninit},
-    slice,
+    ptr, slice,
 };
 
 /// Call `closure` with `data` interpreted as [`&\[T\]`]. If the alignment of `data` is not sufficient for [`T`],
@@ -37,4 +38,18 @@ where
         let data = unsafe { MaybeUninit::slice_assume_init_ref(&allocated_data) };
         closure(data)
     }
+}
+
+/// Drop `val` then call `closure` to compute the new value.
+#[inline]
+pub fn drop_then_new<T, C>(val: &mut T, closure: C) -> Result<()>
+where
+    C: Fn() -> Result<T>,
+{
+    unsafe {
+        ptr::drop_in_place(val);
+        let new = closure()?;
+        ptr::write(val, new);
+    }
+    Ok(())
 }

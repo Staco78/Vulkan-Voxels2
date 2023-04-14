@@ -1,5 +1,3 @@
-use std::ptr;
-
 use anyhow::{Context, Result};
 use vulkanalia::vk::{
     self, DeviceV1_0, Handle, HasBuilder, KhrSurfaceExtension, KhrSwapchainExtension, QueueFlags,
@@ -7,7 +5,10 @@ use vulkanalia::vk::{
 };
 use winit::window::Window;
 
-use crate::render::queues::{get_present_queue_family, get_queue_family};
+use crate::{
+    render::queues::{get_present_queue_family, get_queue_family},
+    utils::drop_then_new,
+};
 
 use super::{devices::DEVICE, image::create_image_view, instance::INSTANCE};
 
@@ -154,10 +155,7 @@ impl Swapchain {
         window: &Window,
         surface: SurfaceKHR,
     ) -> Result<()> {
-        unsafe { ptr::drop_in_place(self) };
-        let new = Self::new(physical_device, window, surface)?;
-        unsafe { ptr::write(self, new) };
-        Ok(())
+        drop_then_new(self, || Self::new(physical_device, window, surface))
     }
 }
 

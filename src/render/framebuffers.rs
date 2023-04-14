@@ -1,7 +1,9 @@
-use std::{ops::Index, ptr};
+use std::ops::Index;
 
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
+
+use crate::utils::drop_then_new;
 
 use super::{devices::DEVICE, pipeline::Pipeline, swapchain::Swapchain};
 
@@ -39,10 +41,7 @@ impl Framebuffers {
 
     #[inline]
     pub fn recreate(&mut self, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<()> {
-        unsafe { ptr::drop_in_place(self) };
-        let new = Self::new(swapchain, pipeline)?;
-        unsafe { ptr::write(self, new) };
-        Ok(())
+        drop_then_new(self, || Self::new(swapchain, pipeline))
     }
 }
 

@@ -1,9 +1,9 @@
-use std::{mem::size_of_val, ptr};
+use std::mem::size_of_val;
 
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, ShaderModuleCreateInfo};
 
-use crate::utils;
+use crate::utils::{self, drop_then_new};
 
 use super::{devices::DEVICE, swapchain::Swapchain, vertex::Vertex};
 
@@ -125,10 +125,7 @@ impl Pipeline {
 
     #[inline]
     pub fn recreate(&mut self, swapchain: &Swapchain) -> Result<()> {
-        unsafe { ptr::drop_in_place(self) };
-        let new = Self::new(swapchain)?;
-        unsafe { ptr::write(self, new) };
-        Ok(())
+        drop_then_new(self, || Self::new(swapchain))
     }
 }
 
