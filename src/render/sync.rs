@@ -1,10 +1,9 @@
 use std::ops::{Deref, DerefMut};
 
 use anyhow::{Context, Result};
-use vulkanalia::{
-    vk::{self, DeviceV1_0, HasBuilder},
-    Device,
-};
+use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
+
+use super::devices::DEVICE;
 
 #[derive(Debug)]
 pub struct Semaphores {
@@ -12,13 +11,13 @@ pub struct Semaphores {
 }
 
 impl Semaphores {
-    pub fn new(device: &Device, count: usize) -> Result<Self> {
+    pub fn new(count: usize) -> Result<Self> {
         let info = vk::SemaphoreCreateInfo::builder();
         let mut semaphores = Vec::with_capacity(count);
         for _ in 0..count {
             unsafe {
                 semaphores.push(
-                    device
+                    DEVICE
                         .create_semaphore(&info, None)
                         .context("Semaphore creation failed")?,
                 )
@@ -27,10 +26,12 @@ impl Semaphores {
 
         Ok(Self { semaphores })
     }
+}
 
-    pub fn destroy(&mut self, device: &Device) {
+impl Drop for Semaphores {
+    fn drop(&mut self) {
         for &semaphore in &self.semaphores {
-            unsafe { device.destroy_semaphore(semaphore, None) };
+            unsafe { DEVICE.destroy_semaphore(semaphore, None) };
         }
     }
 }
@@ -55,7 +56,7 @@ pub struct Fences {
 }
 
 impl Fences {
-    pub fn new(device: &Device, count: usize, signaled: bool) -> Result<Self> {
+    pub fn new(count: usize, signaled: bool) -> Result<Self> {
         let flags = if signaled {
             vk::FenceCreateFlags::SIGNALED
         } else {
@@ -66,7 +67,7 @@ impl Fences {
         for _ in 0..count {
             unsafe {
                 fences.push(
-                    device
+                    DEVICE
                         .create_fence(&info, None)
                         .context("Fence creation failed")?,
                 )
@@ -80,11 +81,12 @@ impl Fences {
     pub fn from_vec(fences: Vec<vk::Fence>) -> Self {
         Self { fences }
     }
+}
 
-    #[inline]
-    pub fn destroy(&mut self, device: &Device) {
+impl Drop for Fences {
+    fn drop(&mut self) {
         for &fence in &self.fences {
-            unsafe { device.destroy_fence(fence, None) };
+            unsafe { DEVICE.destroy_fence(fence, None) };
         }
     }
 }

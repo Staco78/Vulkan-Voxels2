@@ -9,12 +9,14 @@
     clippy::unwrap_used,
     clippy::clone_on_ref_ptr,
     clippy::empty_structs_with_brackets,
-    clippy::dbg_macro
+    clippy::dbg_macro,
+    unused_features
 )]
+#![allow(incomplete_features)]
 #![feature(new_uninit)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(maybe_uninit_slice)]
-#![feature(const_format_args)]
+#![feature(adt_const_params)]
 
 mod render;
 mod utils;

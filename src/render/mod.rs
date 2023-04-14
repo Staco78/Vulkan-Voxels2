@@ -9,6 +9,7 @@ mod memory;
 mod pipeline;
 mod queues;
 mod renderer;
+mod surface;
 mod swapchain;
 mod sync;
 mod vertex;

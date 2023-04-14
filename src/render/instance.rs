@@ -3,7 +3,7 @@ use std::{
     ops::Deref,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use log::{debug, error, trace, warn};
 use vulkanalia::{
@@ -15,7 +15,10 @@ use vulkanalia::{
 };
 use winit::window::Window;
 
-use crate::render::config::{VALIDATION_ENABLED, VALIDATION_LAYERS};
+use crate::{
+    render::config::{VALIDATION_ENABLED, VALIDATION_LAYERS},
+    utils::DerefOnceLock,
+};
 
 #[derive(Debug)]
 pub struct Instance {
@@ -43,8 +46,18 @@ impl Drop for Instance {
     }
 }
 
+pub static INSTANCE: DerefOnceLock<Instance, "Instance not initialized"> = DerefOnceLock::new();
+
 impl Instance {
-    pub fn new(entry: &Entry, window: &Window) -> Result<Self> {
+    pub fn init(entry: &Entry, window: &Window) -> Result<()> {
+        let instance = Self::new(entry, window)?;
+        INSTANCE
+            .inner()
+            .set(instance)
+            .map_err(|_| anyhow!("Instance already initialized"))
+    }
+
+    fn new(entry: &Entry, window: &Window) -> Result<Self> {
         let app_version = {
             let major = env!("CARGO_PKG_VERSION_MAJOR")
                 .parse()

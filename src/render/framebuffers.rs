@@ -1,12 +1,9 @@
-use std::ops::Index;
+use std::{ops::Index, ptr};
 
 use anyhow::{Context, Result};
-use vulkanalia::{
-    vk::{self, DeviceV1_0, HasBuilder},
-    Device,
-};
+use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
 
-use super::{pipeline::Pipeline, swapchain::Swapchain};
+use super::{devices::DEVICE, pipeline::Pipeline, swapchain::Swapchain};
 
 #[derive(Debug)]
 pub struct Framebuffers {
@@ -14,7 +11,7 @@ pub struct Framebuffers {
 }
 
 impl Framebuffers {
-    pub fn new(device: &Device, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<Self> {
+    pub fn new(swapchain: &Swapchain, pipeline: &Pipeline) -> Result<Self> {
         let framebuffers = swapchain
             .image_views
             .iter()
@@ -27,7 +24,7 @@ impl Framebuffers {
                     .height(swapchain.extent.height)
                     .layers(1);
 
-                unsafe { device.create_framebuffer(&create_info, None) }
+                unsafe { DEVICE.create_framebuffer(&create_info, None) }
                     .context("Framebuffer creation failed")
             })
             .collect::<Result<Vec<_>>>()?;
@@ -41,22 +38,19 @@ impl Framebuffers {
     }
 
     #[inline]
-    pub fn recreate(
-        &mut self,
-        device: &Device,
-        swapchain: &Swapchain,
-        pipeline: &Pipeline,
-    ) -> Result<()> {
-        self.destroy(device);
-        let new = Self::new(device, swapchain, pipeline)?;
-        *self = new;
+    pub fn recreate(&mut self, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<()> {
+        unsafe { ptr::drop_in_place(self) };
+        let new = Self::new(swapchain, pipeline)?;
+        unsafe { ptr::write(self, new) };
         Ok(())
     }
+}
 
-    pub fn destroy(&mut self, device: &Device) {
+impl Drop for Framebuffers {
+    fn drop(&mut self) {
         unsafe {
             for &framebuffer in &self.framebuffers {
-                device.destroy_framebuffer(framebuffer, None);
+                DEVICE.destroy_framebuffer(framebuffer, None);
             }
         }
     }

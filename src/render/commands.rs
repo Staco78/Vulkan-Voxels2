@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
-use vulkanalia::{
-    vk::{self, CommandPoolCreateInfo, CommandPoolResetFlags, DeviceV1_0, HasBuilder, QueueFlags},
-    Device, Instance,
+use vulkanalia::vk::{
+    self, CommandPoolCreateInfo, CommandPoolResetFlags, DeviceV1_0, HasBuilder, QueueFlags,
 };
 
 use crate::render::queues::get_queue_family;
+
+use super::devices::DEVICE;
 
 #[derive(Debug)]
 pub struct CommandPool {
@@ -12,27 +13,23 @@ pub struct CommandPool {
 }
 
 impl CommandPool {
-    pub fn new(
-        instance: &Instance,
-        device: &Device,
-        physical_device: vk::PhysicalDevice,
-    ) -> Result<Self> {
-        let graphics_family = get_queue_family(instance, physical_device, QueueFlags::GRAPHICS)?
+    pub fn new(physical_device: vk::PhysicalDevice) -> Result<Self> {
+        let graphics_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
             .expect("A graphics queue should have been found");
         let info = CommandPoolCreateInfo::builder().queue_family_index(graphics_family);
-        let pool = unsafe { device.create_command_pool(&info, None) }
+        let pool = unsafe { DEVICE.create_command_pool(&info, None) }
             .context("Command pool creation failed")?;
 
         Ok(Self { pool })
     }
 
-    pub fn alloc_buffers(&self, device: &Device, count: usize) -> Result<Vec<CommandBuffer>> {
+    pub fn alloc_buffers(&self, count: usize) -> Result<Vec<CommandBuffer>> {
         let info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(count as u32);
 
-        let buffers = unsafe { device.allocate_command_buffers(&info)? };
+        let buffers = unsafe { DEVICE.allocate_command_buffers(&info)? };
 
         let buffers = buffers
             .iter()
@@ -43,9 +40,9 @@ impl CommandPool {
     }
 
     #[inline]
-    pub fn reset(&mut self, device: &Device) -> Result<()> {
+    pub fn reset(&mut self) -> Result<()> {
         unsafe {
-            device
+            DEVICE
                 .reset_command_pool(self.pool, CommandPoolResetFlags::empty())
                 .context("Command pool reset failed")?;
         };
@@ -55,32 +52,33 @@ impl CommandPool {
     #[inline]
     pub fn realloc_buffers(
         &mut self,
-        device: &Device,
         buffers: &mut Vec<CommandBuffer>,
         new_count: usize,
     ) -> Result<()> {
         let old_count = buffers.len();
         if old_count == new_count {
-            self.reset(device)?;
+            self.reset()?;
             return Ok(());
         }
         if new_count < old_count {
             for buffer in buffers.drain(new_count..) {
-                buffer.free(device, self.pool);
+                buffer.free(self.pool);
             }
         } else {
-            let new_buffs = self.alloc_buffers(device, new_count - old_count)?;
+            let new_buffs = self.alloc_buffers(new_count - old_count)?;
             buffers.extend(new_buffs);
         }
 
-        self.reset(device)?;
+        self.reset()?;
 
         Ok(())
     }
+}
 
-    pub fn destroy(&mut self, device: &Device) {
+impl Drop for CommandPool {
+    fn drop(&mut self) {
         unsafe {
-            device.destroy_command_pool(self.pool, None);
+            DEVICE.destroy_command_pool(self.pool, None);
         }
     }
 }
@@ -92,20 +90,20 @@ pub struct CommandBuffer {
 
 impl CommandBuffer {
     #[inline]
-    pub fn begin(&mut self, device: &Device) -> Result<()> {
+    pub fn begin(&mut self) -> Result<()> {
         let info = vk::CommandBufferBeginInfo::builder();
-        unsafe { device.begin_command_buffer(self.buffer, &info)? };
+        unsafe { DEVICE.begin_command_buffer(self.buffer, &info)? };
         Ok(())
     }
 
     #[inline]
-    pub fn end(&mut self, device: &Device) -> Result<()> {
-        unsafe { device.end_command_buffer(self.buffer)? };
+    pub fn end(&mut self) -> Result<()> {
+        unsafe { DEVICE.end_command_buffer(self.buffer)? };
         Ok(())
     }
 
     #[inline]
-    pub fn free(self, device: &Device, pool: vk::CommandPool) {
-        unsafe { device.free_command_buffers(pool, &[self.buffer]) };
+    pub fn free(self, pool: vk::CommandPool) {
+        unsafe { DEVICE.free_command_buffers(pool, &[self.buffer]) };
     }
 }

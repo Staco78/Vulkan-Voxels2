@@ -1,24 +1,21 @@
 use anyhow::{anyhow, Context, Result};
 use log::trace;
-use vulkanalia::{
-    vk::{self, DeviceV1_0, HasBuilder, InstanceV1_0, MemoryRequirements},
-    Device, Instance,
-};
+use vulkanalia::vk::{self, DeviceV1_0, HasBuilder, InstanceV1_0, MemoryRequirements};
+
+use crate::render::{devices::DEVICE, instance::INSTANCE};
 
 use super::allocator;
 
 #[derive(Debug)]
 pub struct Allocator {
-    device: Device,
     device_memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 impl Allocator {
-    pub fn new(device: &Device, instance: &Instance, physical_device: vk::PhysicalDevice) -> Self {
+    pub fn new(physical_device: vk::PhysicalDevice) -> Self {
         let device_memory_properties =
-            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+            unsafe { INSTANCE.get_physical_device_memory_properties(physical_device) };
         Self {
-            device: Clone::clone(device),
             device_memory_properties,
         }
     }
@@ -35,7 +32,7 @@ impl Allocator {
             .allocation_size(requirements.size)
             .memory_type_index(memory_type_index);
         let memory =
-            unsafe { self.device.allocate_memory(&info, None) }.context("Failed to allocated")?;
+            unsafe { DEVICE.allocate_memory(&info, None) }.context("Failed to allocated")?;
 
         let alloc = Allocation {
             memory,
@@ -47,7 +44,7 @@ impl Allocator {
     #[inline]
     fn free(&self, alloc: &Allocation) {
         trace!(target: "allocator", "Free {}B", alloc.size);
-        unsafe { self.device.free_memory(alloc.memory, None) }
+        unsafe { DEVICE.free_memory(alloc.memory, None) }
     }
 }
 

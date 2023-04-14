@@ -1,19 +1,20 @@
 use std::{ffi::CStr, ops::Deref};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{info, warn};
-use vulkanalia::{
-    vk::{
-        self, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceV1_0, HasBuilder, InstanceV1_0,
-        KhrSurfaceExtension, PhysicalDeviceProperties, PhysicalDeviceType, QueueFlags,
-    },
-    Instance,
+use vulkanalia::vk::{
+    self, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceV1_0, HasBuilder, InstanceV1_0,
+    KhrSurfaceExtension, PhysicalDeviceProperties, PhysicalDeviceType, QueueFlags,
 };
 
-use crate::render::{
-    config::VALIDATION_LAYERS,
-    queues::{get_queue_families, get_queue_family},
-    swapchain::SwapchainSupport,
+use crate::{
+    render::{
+        config::VALIDATION_LAYERS,
+        instance::INSTANCE,
+        queues::{get_queue_families, get_queue_family},
+        swapchain::SwapchainSupport,
+    },
+    utils::DerefOnceLock,
 };
 
 use super::{
@@ -21,9 +22,9 @@ use super::{
     queues::get_present_queue_family,
 };
 
-pub fn pick_physical(instance: &Instance, surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
+pub fn pick_physical(surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
     let devices = unsafe {
-        instance
+        INSTANCE
             .enumerate_physical_devices()
             .context("Physical devices enumeration failed")?
     };
@@ -32,12 +33,12 @@ pub fn pick_physical(instance: &Instance, surface: vk::SurfaceKHR) -> Result<vk:
         .iter()
         .copied()
         .map(|device| {
-            let props = unsafe { instance.get_physical_device_properties(device) };
+            let props = unsafe { INSTANCE.get_physical_device_properties(device) };
             (device, props)
         })
         .filter(|&(device, props)| {
             let name = unsafe { CStr::from_ptr(props.device_name.as_ptr()) };
-            let r = filter_device(instance, surface, device, props);
+            let r = filter_device(surface, device, props);
             match r {
                 Ok(Ok(())) => true,
                 Ok(Err(reason)) => {
@@ -68,18 +69,17 @@ pub fn pick_physical(instance: &Instance, surface: vk::SurfaceKHR) -> Result<vk:
 /// Check minimum properties for `device`.
 /// Return `Ok(Ok()))` if the device is usable, `Ok(Err(reason))` else and an anyhow error if something went wrong.
 fn filter_device(
-    instance: &Instance,
     surface: vk::SurfaceKHR,
     device: vk::PhysicalDevice,
     _props: PhysicalDeviceProperties,
 ) -> anyhow::Result<Result<(), &'static str>> {
     let mut graphics_queue_count = 0;
     let mut present_queue_count = 0;
-    for (i, family) in get_queue_families(instance, device).iter().enumerate() {
+    for (i, family) in get_queue_families(device).iter().enumerate() {
         if family.queue_flags.intersects(QueueFlags::GRAPHICS) {
             graphics_queue_count += family.queue_count as usize;
         }
-        if unsafe { instance.get_physical_device_surface_support_khr(device, i as u32, surface) }
+        if unsafe { INSTANCE.get_physical_device_surface_support_khr(device, i as u32, surface) }
             .context("Unable to query if presentation is supported")?
         {
             present_queue_count += 1;
@@ -93,23 +93,20 @@ fn filter_device(
         return Ok(Err("No graphics queue"));
     }
 
-    if !check_required_extensions(instance, device)? {
+    if !check_required_extensions(device)? {
         return Ok(Err("Required extension not found"));
     }
 
-    if !check_swapchain(instance, device, surface)? {
+    if !check_swapchain(device, surface)? {
         return Ok(Err("Insufficient swapchain support"));
     }
 
     Ok(Ok(()))
 }
 
-fn check_required_extensions(
-    instance: &Instance,
-    device: vk::PhysicalDevice,
-) -> anyhow::Result<bool> {
+fn check_required_extensions(device: vk::PhysicalDevice) -> anyhow::Result<bool> {
     let extensions = unsafe {
-        instance
+        INSTANCE
             .enumerate_device_extension_properties(device, None)
             .context("Enumerating device extensions failed")?
     };
@@ -119,13 +116,9 @@ fn check_required_extensions(
         .all(|ext| extensions.iter().any(|&e| e.extension_name == ext.name)))
 }
 
-fn check_swapchain(
-    instance: &Instance,
-    device: vk::PhysicalDevice,
-    surface: vk::SurfaceKHR,
-) -> anyhow::Result<bool> {
-    let swapchain_support = SwapchainSupport::get(instance, device, surface)
-        .context("Querying swapchain support failed")?;
+fn check_swapchain(device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> anyhow::Result<bool> {
+    let swapchain_support =
+        SwapchainSupport::get(device, surface).context("Querying swapchain support failed")?;
     Ok(!swapchain_support.formats.is_empty() && !swapchain_support.present_modes.is_empty())
 }
 
@@ -144,6 +137,8 @@ fn score_device(_device: vk::PhysicalDevice, props: PhysicalDeviceProperties) ->
 
     score
 }
+
+pub static DEVICE: DerefOnceLock<Device, "Device not initialized"> = DerefOnceLock::new();
 
 #[derive(Debug)]
 pub struct Device {
@@ -167,15 +162,19 @@ impl Drop for Device {
 }
 
 impl Device {
-    pub fn new(
-        instance: &Instance,
-        physical_device: vk::PhysicalDevice,
-        surface: vk::SurfaceKHR,
-    ) -> Result<Self> {
-        let graphics_queue_family =
-            get_queue_family(instance, physical_device, QueueFlags::GRAPHICS)?
-                .context("No graphics queue found")?;
-        let present_queue_family = get_present_queue_family(instance, physical_device, surface)?
+    #[inline]
+    pub fn init(physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> Result<()> {
+        let device = Self::new(physical_device, surface)?;
+        DEVICE
+            .inner()
+            .set(device)
+            .map_err(|_| anyhow!("Device already initialized"))
+    }
+
+    fn new(physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> Result<Self> {
+        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
+            .context("No graphics queue found")?;
+        let present_queue_family = get_present_queue_family(physical_device, surface)?
             .context("No present queue found")?;
 
         let priority = &[1.0];
@@ -214,7 +213,7 @@ impl Device {
             .enabled_layer_names(layers)
             .enabled_extension_names(&extensions);
 
-        let device = unsafe { instance.create_device(physical_device, &create_info, None) }?;
+        let device = unsafe { INSTANCE.create_device(physical_device, &create_info, None) }?;
         let graphics_queue = unsafe { device.get_device_queue(graphics_queue_family, 0) };
         let present_queue = unsafe { device.get_device_queue(present_queue_family, 0) };
 

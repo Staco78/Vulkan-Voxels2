@@ -1,6 +1,6 @@
 mod allocator;
 pub use allocator::*;
-use vulkanalia::{vk, Device, Instance};
+use vulkanalia::vk;
 
 use std::sync::OnceLock;
 
@@ -12,6 +12,6 @@ pub fn allocator() -> &'static Allocator {
 }
 
 #[inline(always)]
-pub fn init_allocator(device: &Device, instance: &Instance, physical_device: vk::PhysicalDevice) {
-    ALLOCATOR.get_or_init(|| Allocator::new(device, instance, physical_device));
+pub fn init_allocator(physical_device: vk::PhysicalDevice) {
+    ALLOCATOR.get_or_init(|| Allocator::new(physical_device));
 }

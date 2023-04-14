@@ -1,16 +1,15 @@
+use std::ptr;
+
 use anyhow::{Context, Result};
-use vulkanalia::{
-    vk::{
-        self, DeviceV1_0, Handle, HasBuilder, KhrSurfaceExtension, KhrSwapchainExtension,
-        QueueFlags, SurfaceKHR,
-    },
-    Device, Instance,
+use vulkanalia::vk::{
+    self, DeviceV1_0, Handle, HasBuilder, KhrSurfaceExtension, KhrSwapchainExtension, QueueFlags,
+    SurfaceKHR,
 };
 use winit::window::Window;
 
 use crate::render::queues::{get_present_queue_family, get_queue_family};
 
-use super::image::create_image_view;
+use super::{devices::DEVICE, image::create_image_view, instance::INSTANCE};
 
 #[derive(Clone, Debug)]
 pub struct SwapchainSupport {
@@ -20,20 +19,16 @@ pub struct SwapchainSupport {
 }
 
 impl SwapchainSupport {
-    pub fn get(
-        instance: &Instance,
-        device: vk::PhysicalDevice,
-        surface: SurfaceKHR,
-    ) -> Result<Self> {
+    pub fn get(device: vk::PhysicalDevice, surface: SurfaceKHR) -> Result<Self> {
         unsafe {
             Ok(Self {
-                capabilities: instance
+                capabilities: INSTANCE
                     .get_physical_device_surface_capabilities_khr(device, surface)
                     .context("Querying surface capabilities failed")?,
-                formats: instance
+                formats: INSTANCE
                     .get_physical_device_surface_formats_khr(device, surface)
                     .context("Querying surface formats failed")?,
-                present_modes: instance
+                present_modes: INSTANCE
                     .get_physical_device_surface_present_modes_khr(device, surface)
                     .context("Querying surface present modes failed")?,
             })
@@ -88,19 +83,16 @@ pub struct Swapchain {
 
 impl Swapchain {
     pub fn new(
-        instance: &Instance,
         physical_device: vk::PhysicalDevice,
-        device: &Device,
         window: &Window,
         surface: SurfaceKHR,
     ) -> Result<Self> {
-        let graphics_queue_family =
-            get_queue_family(instance, physical_device, QueueFlags::GRAPHICS)?
-                .context("No graphics queue found")?;
-        let present_queue_family = get_present_queue_family(instance, physical_device, surface)?
+        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
+            .context("No graphics queue found")?;
+        let present_queue_family = get_present_queue_family(physical_device, surface)?
             .context("No present queue found")?;
 
-        let support = SwapchainSupport::get(instance, physical_device, surface)
+        let support = SwapchainSupport::get(physical_device, surface)
             .context("Querying swapchain support failed")?;
 
         let format = support.get_best_format();
@@ -139,11 +131,11 @@ impl Swapchain {
             .clipped(true)
             .old_swapchain(vk::SwapchainKHR::null());
 
-        let swapchain = unsafe { device.create_swapchain_khr(&info, None)? };
-        let images = unsafe { device.get_swapchain_images_khr(swapchain)? };
+        let swapchain = unsafe { DEVICE.create_swapchain_khr(&info, None)? };
+        let images = unsafe { DEVICE.get_swapchain_images_khr(swapchain)? };
         let image_views = images
             .iter()
-            .map(|i| create_image_view(device, *i, format.format, vk::ImageAspectFlags::COLOR, 1))
+            .map(|i| create_image_view(*i, format.format, vk::ImageAspectFlags::COLOR, 1))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -158,24 +150,24 @@ impl Swapchain {
     #[inline]
     pub fn recreate(
         &mut self,
-        instance: &Instance,
         physical_device: vk::PhysicalDevice,
-        device: &Device,
         window: &Window,
         surface: SurfaceKHR,
     ) -> Result<()> {
-        self.destroy(device);
-        let new = Self::new(instance, physical_device, device, window, surface)?;
-        *self = new;
+        unsafe { ptr::drop_in_place(self) };
+        let new = Self::new(physical_device, window, surface)?;
+        unsafe { ptr::write(self, new) };
         Ok(())
     }
+}
 
-    pub fn destroy(&mut self, device: &Device) {
+impl Drop for Swapchain {
+    fn drop(&mut self) {
         unsafe {
             for view in &self.image_views {
-                device.destroy_image_view(*view, None);
+                DEVICE.destroy_image_view(*view, None);
             }
-            device.destroy_swapchain_khr(self.swapchain, None)
+            DEVICE.destroy_swapchain_khr(self.swapchain, None)
         };
     }
 }

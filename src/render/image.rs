@@ -1,11 +1,9 @@
 use anyhow::{Context, Result};
-use vulkanalia::{
-    vk::{self, DeviceV1_0, HasBuilder},
-    Device,
-};
+use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
+
+use super::devices::DEVICE;
 
 pub fn create_image_view(
-    device: &Device,
     image: vk::Image,
     format: vk::Format,
     aspects: vk::ImageAspectFlags,
@@ -32,7 +30,7 @@ pub fn create_image_view(
         .components(components);
 
     let view = unsafe {
-        device
+        DEVICE
             .create_image_view(&info, None)
             .context("Create image view failed")?
     };

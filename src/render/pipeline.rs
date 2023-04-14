@@ -1,21 +1,18 @@
-use std::mem::size_of_val;
+use std::{mem::size_of_val, ptr};
 
 use anyhow::{Context, Result};
-use vulkanalia::{
-    vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, ShaderModuleCreateInfo},
-    Device,
-};
+use vulkanalia::vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, ShaderModuleCreateInfo};
 
 use crate::utils;
 
-use super::{swapchain::Swapchain, vertex::Vertex};
+use super::{devices::DEVICE, swapchain::Swapchain, vertex::Vertex};
 
 macro_rules! shader_module {
-    ($device: ident, $file: expr) => {
+    ($file: expr) => {
         unsafe {
             utils::with_convert(
                 include_bytes!(concat!(env!("OUT_DIR"), "/", $file)),
-                |bytes| create_shader_module($device, bytes),
+                |bytes| create_shader_module(bytes),
             )
             .context(concat!("Shader module for ", $file, " failed"))
         }
@@ -30,9 +27,9 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(device: &Device, swapchain: &Swapchain) -> Result<Self> {
-        let frag_module = shader_module!(device, "shader.frag")?;
-        let vert_module = shader_module!(device, "shader.vert")?;
+    pub fn new(swapchain: &Swapchain) -> Result<Self> {
+        let frag_module = shader_module!("shader.frag")?;
+        let vert_module = shader_module!("shader.vert")?;
 
         let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
             .stage(vk::ShaderStageFlags::VERTEX)
@@ -89,13 +86,12 @@ impl Pipeline {
 
         let layout_info = vk::PipelineLayoutCreateInfo::builder();
         let layout = unsafe {
-            device
+            DEVICE
                 .create_pipeline_layout(&layout_info, None)
                 .context("Pipeline layout creation failed")?
         };
 
-        let render_pass =
-            create_render_pass(device, swapchain).context("Render pass creation failed")?;
+        let render_pass = create_render_pass(swapchain).context("Render pass creation failed")?;
 
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::builder()
@@ -111,13 +107,13 @@ impl Pipeline {
             .subpass(0);
 
         let pipeline =
-            unsafe { device.create_graphics_pipelines(PipelineCache::null(), &[info], None) }
+            unsafe { DEVICE.create_graphics_pipelines(PipelineCache::null(), &[info], None) }
                 .context("Pipeline creation failed")?
                 .0;
 
         unsafe {
-            device.destroy_shader_module(frag_module, None);
-            device.destroy_shader_module(vert_module, None);
+            DEVICE.destroy_shader_module(frag_module, None);
+            DEVICE.destroy_shader_module(vert_module, None);
         };
 
         Ok(Self {
@@ -128,32 +124,34 @@ impl Pipeline {
     }
 
     #[inline]
-    pub fn recreate(&mut self, device: &Device, swapchain: &Swapchain) -> Result<()> {
-        self.destroy(device);
-        let new = Self::new(device, swapchain)?;
-        *self = new;
+    pub fn recreate(&mut self, swapchain: &Swapchain) -> Result<()> {
+        unsafe { ptr::drop_in_place(self) };
+        let new = Self::new(swapchain)?;
+        unsafe { ptr::write(self, new) };
         Ok(())
     }
+}
 
-    pub fn destroy(&mut self, device: &Device) {
+impl Drop for Pipeline {
+    fn drop(&mut self) {
         unsafe {
-            device.destroy_pipeline(self.pipeline, None);
-            device.destroy_pipeline_layout(self.layout, None);
-            device.destroy_render_pass(self.render_pass, None);
+            DEVICE.destroy_pipeline(self.pipeline, None);
+            DEVICE.destroy_pipeline_layout(self.layout, None);
+            DEVICE.destroy_render_pass(self.render_pass, None);
         }
     }
 }
 
-fn create_shader_module(device: &Device, bytes: &[u32]) -> Result<vk::ShaderModule> {
+fn create_shader_module(bytes: &[u32]) -> Result<vk::ShaderModule> {
     let info = ShaderModuleCreateInfo::builder()
         .code(bytes)
         .code_size(size_of_val(bytes));
-    let module = unsafe { device.create_shader_module(&info, None) }
+    let module = unsafe { DEVICE.create_shader_module(&info, None) }
         .context("Shader module creation failed")?;
     Ok(module)
 }
 
-fn create_render_pass(device: &Device, swapchain: &Swapchain) -> Result<vk::RenderPass> {
+fn create_render_pass(swapchain: &Swapchain) -> Result<vk::RenderPass> {
     let color_attachment = vk::AttachmentDescription::builder()
         .format(swapchain.format.format)
         .samples(vk::SampleCountFlags::_1)
@@ -189,6 +187,6 @@ fn create_render_pass(device: &Device, swapchain: &Swapchain) -> Result<vk::Rend
         .subpasses(subpasses)
         .dependencies(dependencies);
 
-    let render_pass = unsafe { device.create_render_pass(&info, None)? };
+    let render_pass = unsafe { DEVICE.create_render_pass(&info, None)? };
     Ok(render_pass)
 }

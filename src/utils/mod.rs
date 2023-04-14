@@ -1,3 +1,6 @@
+mod deref_once_lock;
+pub use deref_once_lock::DerefOnceLock;
+
 use std::{
     mem::{size_of, size_of_val, MaybeUninit},
     slice,
