@@ -19,4 +19,4 @@ mod vertex;
 mod window;
 
 pub use renderer::Renderer;
-pub use window::create_window;
+pub use window::Window;

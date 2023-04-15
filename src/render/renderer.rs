@@ -1,4 +1,4 @@
-use std::{fmt::Debug, mem::size_of_val};
+use std::{fmt::Debug, mem::size_of_val, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use nalgebra_glm as glm;
@@ -9,7 +9,10 @@ use vulkanalia::{
 };
 use winit::window::Window;
 
-use crate::render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms};
+use crate::{
+    inputs::Inputs,
+    render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms},
+};
 
 use super::{
     buffer::Buffer,
@@ -99,7 +102,7 @@ impl Renderer {
         vertex_buffer
             .fill(&vertices)
             .context("Vertex buffer filling failed")?;
-        let camera = Camera::new();
+        let camera = Camera::new(swapchain.extent);
 
         let mut s = Self {
             _entry: entry,
@@ -183,7 +186,9 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn render(&mut self, window: &Window) -> Result<()> {
+    pub fn render(&mut self, elapsed: Duration, window: &Window, inputs: &Inputs) -> Result<()> {
+        self.camera.tick(inputs, elapsed);
+
         unsafe {
             DEVICE.wait_for_fences(&[self.in_flight_fences[self.frame]], true, u64::max_value())
         }
@@ -221,7 +226,7 @@ impl Renderer {
 
         self.images_in_flight[image_index as usize] = self.in_flight_fences[self.frame];
 
-        self.uniforms[image_index as usize].write(self.camera.ubo(self.swapchain.extent));
+        self.uniforms[image_index as usize].write(self.camera.ubo());
 
         let wait_semaphores = &[self.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -290,6 +295,7 @@ impl Renderer {
             .resize(self.swapchain.images.len(), vk::Fence::null());
         self.record_commands()
             .context("Commands recording failed")?;
+        self.camera.rebuild_proj(self.swapchain.extent);
 
         Ok(())
     }

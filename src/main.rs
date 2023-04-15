@@ -18,47 +18,29 @@
 #![feature(maybe_uninit_slice)]
 #![feature(adt_const_params)]
 
+mod app;
+mod inputs;
 mod render;
 mod utils;
 
 use anyhow::{Context, Result};
+use app::App;
 use log::LevelFilter;
-use render::{create_window, Renderer};
+use render::Window;
 use simplelog::{ColorChoice, ConfigBuilder, TermLogger, TerminalMode};
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::ControlFlow,
-};
 
 fn main() -> Result<()> {
     init_logger()?;
 
-    let (window, event_loop) = create_window()?;
+    let (window, event_loop) = Window::new()?;
 
-    let mut renderer = Renderer::new(&window).context("Renderer creation failed")?;
+    let mut app = App::new(window)?;
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-            WindowEvent::Resized(_) =>
-            {
-                #[allow(clippy::unwrap_used)]
-                renderer
-                    .recreate_swapchain(&window)
-                    .context("Swapchain recreation failed")
-                    .unwrap()
-            }
-            _ => (),
-        },
-        Event::MainEventsCleared => {
-            #[allow(clippy::unwrap_used)]
-            renderer
-                .render(&window)
-                .context("Rendering failed")
-                .unwrap();
+    event_loop.run(move |event, _, control_flow| {
+        let r = app.tick_event(event).expect("App ticking failed");
+        if let Some(new_control_flow) = r {
+            *control_flow = new_control_flow;
         }
-
-        _ => (),
     });
 }
 
