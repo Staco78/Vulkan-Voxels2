@@ -22,6 +22,7 @@ mod app;
 mod inputs;
 mod render;
 mod utils;
+mod world;
 
 use anyhow::{Context, Result};
 use app::App;

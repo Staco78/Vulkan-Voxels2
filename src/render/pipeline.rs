@@ -1,9 +1,12 @@
-use std::mem::size_of_val;
+use std::mem::{size_of, size_of_val};
 
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, ShaderModuleCreateInfo};
 
-use crate::utils::{self, drop_then_new};
+use crate::{
+    utils::{self, drop_then_new},
+    world::ChunkPos,
+};
 
 use super::{
     camera::UniformBufferObject, depth::DepthBuffer, devices::DEVICE, swapchain::Swapchain,
@@ -73,10 +76,10 @@ impl Pipeline {
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
-            .polygon_mode(vk::PolygonMode::FILL)
+            .polygon_mode(vk::PolygonMode::LINE)
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .front_face(vk::FrontFace::CLOCKWISE)
             .depth_bias_enable(false);
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
@@ -97,8 +100,16 @@ impl Pipeline {
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
 
+        let vert_push_constant_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .offset(0)
+            .size(size_of::<ChunkPos>() as u32);
+
         let layouts = [uniforms.descriptor_layout];
-        let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&layouts);
+        let push_constant_ranges = [vert_push_constant_range];
+        let layout_info = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(&layouts)
+            .push_constant_ranges(&push_constant_ranges);
         let layout = unsafe {
             DEVICE
                 .create_pipeline_layout(&layout_info, None)

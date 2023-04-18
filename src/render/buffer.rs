@@ -1,5 +1,4 @@
 use core::slice;
-use std::{mem::size_of_val, ptr};
 
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder, MemoryPropertyFlags};
@@ -52,7 +51,7 @@ impl Buffer {
 
     /// Flush and unmap all mapped regions.
     ///
-    /// # Safety:
+    /// # Safety
     /// Don't use any previously mapped slice after calling this.
     pub unsafe fn unmap(&mut self) -> Result<()> {
         let memory_ranges = &[vk::MappedMemoryRange::builder()
@@ -70,15 +69,9 @@ impl Buffer {
         Ok(())
     }
 
-    pub fn fill<T>(&mut self, data: &[T]) -> Result<()> {
-        let alloc_size = self.alloc.size();
-        let memory = self.map()?;
-        let size = size_of_val(data);
-        assert!(size <= alloc_size);
-        unsafe { ptr::copy_nonoverlapping(data.as_ptr(), memory.as_mut_ptr() as *mut T, size) };
-        unsafe { self.unmap() }?;
-
-        Ok(())
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.alloc.size()
     }
 }
 

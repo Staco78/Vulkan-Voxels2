@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use anyhow::{Context, Result};
 use vulkanalia::vk::{
     self, CommandPoolCreateInfo, CommandPoolResetFlags, DeviceV1_0, HasBuilder, QueueFlags,
@@ -16,7 +18,9 @@ impl CommandPool {
     pub fn new(physical_device: vk::PhysicalDevice) -> Result<Self> {
         let graphics_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
             .expect("A graphics queue should have been found");
-        let info = CommandPoolCreateInfo::builder().queue_family_index(graphics_family);
+        let info = CommandPoolCreateInfo::builder()
+            .queue_family_index(graphics_family)
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
         let pool = unsafe { DEVICE.create_command_pool(&info, None) }
             .context("Command pool creation failed")?;
 
@@ -85,7 +89,7 @@ impl Drop for CommandPool {
 
 #[derive(Debug, Clone)]
 pub struct CommandBuffer {
-    pub buffer: vk::CommandBuffer,
+    buffer: vk::CommandBuffer,
 }
 
 impl CommandBuffer {
@@ -103,7 +107,20 @@ impl CommandBuffer {
     }
 
     #[inline]
-    pub fn free(self, pool: vk::CommandPool) {
+    fn free(self, pool: vk::CommandPool) {
         unsafe { DEVICE.free_command_buffers(pool, &[self.buffer]) };
+    }
+
+    #[inline]
+    pub fn reset(&mut self) -> Result<()> {
+        unsafe { DEVICE.reset_command_buffer(self.buffer, vk::CommandBufferResetFlags::empty()) }
+            .context("Command buffer reset failed")
+    }
+}
+
+impl Deref for CommandBuffer {
+    type Target = vk::CommandBuffer;
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
     }
 }

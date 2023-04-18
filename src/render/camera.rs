@@ -1,14 +1,15 @@
 use std::time::Duration;
 
-use glm::Vec3;
+use glm::{TVec3, Vec3};
 use nalgebra_glm as glm;
 use nalgebra_glm::Mat4;
 use vulkanalia::vk;
 
 use crate::inputs::Inputs;
+use crate::world::EntityPos;
 
-const SENSITIVITY: f32 = 3.;
-const SPEED: f32 = 10.;
+const SENSITIVITY: f32 = 0.05;
+const SPEED: f32 = 30.;
 const FOV: f32 = 45.;
 const NEAR: f32 = 0.1;
 const FAR: f32 = 1000.;
@@ -22,19 +23,14 @@ pub struct UniformBufferObject {
 
 #[derive(Debug)]
 pub struct Camera {
-    pos: Vec3,
-    yaw: f32,
-    pitch: f32,
-
+    pub pos: EntityPos,
     proj: Mat4,
 }
 
 impl Camera {
     pub fn new(swapchain_extent: vk::Extent2D) -> Self {
         Self {
-            pos: Vec3::new(2., 2., 2.),
-            yaw: 230.,
-            pitch: -35.,
+            pos: EntityPos::new(0., 0., 0., 0., 0.),
             proj: Self::create_proj(swapchain_extent),
         }
     }
@@ -42,50 +38,58 @@ impl Camera {
     pub fn tick(&mut self, inputs: &Inputs, elapsed: Duration) {
         let mouse_delta = inputs.fetch_mouse_delta();
 
-        self.yaw += mouse_delta.0 as f32 * elapsed.as_secs_f32() * SENSITIVITY;
-        self.pitch -= mouse_delta.1 as f32 * elapsed.as_secs_f32() * SENSITIVITY;
+        let yaw = self.pos.yaw() + mouse_delta.0 as f32 * SENSITIVITY;
+        let mut pitch = self.pos.pitch() - mouse_delta.1 as f32 * SENSITIVITY;
 
-        if self.pitch > 89.0 {
-            self.pitch = 89.0;
+        if pitch > 89.0 {
+            pitch = 89.0;
         }
-        if self.pitch < -89.0 {
-            self.pitch = -89.0;
+        if pitch < -89.0 {
+            pitch = -89.0;
         }
 
-        let dir =
-            Vec3::new(self.yaw.to_radians().cos(), 0., self.yaw.to_radians().sin()).normalize();
+        let dir = Vec3::new(yaw.to_radians().cos(), 0., yaw.to_radians().sin()).normalize();
         let right = dir.cross(&Vec3::y()).normalize();
         let up = Vec3::y();
 
         let speed = SPEED * elapsed.as_secs_f32();
 
+        let pos: &mut Vec3 = &mut self.pos;
+
         if inputs.is_key_pressed(winit::event::VirtualKeyCode::Z) {
-            self.pos += dir * speed;
+            *pos += dir * speed;
         }
         if inputs.is_key_pressed(winit::event::VirtualKeyCode::S) {
-            self.pos -= dir * speed;
+            *pos -= dir * speed;
         }
         if inputs.is_key_pressed(winit::event::VirtualKeyCode::Q) {
-            self.pos -= right * speed;
+            *pos -= right * speed;
         }
         if inputs.is_key_pressed(winit::event::VirtualKeyCode::D) {
-            self.pos += right * speed;
+            *pos += right * speed;
         }
         if inputs.is_key_pressed(winit::event::VirtualKeyCode::Space) {
-            self.pos += up * speed;
+            *pos += up * speed;
         }
         if inputs.is_key_pressed(winit::event::VirtualKeyCode::LShift) {
-            self.pos -= up * speed;
+            *pos -= up * speed;
         }
+
+        self.pos.look.x = pitch;
+        self.pos.look.y = yaw;
     }
 
     pub fn ubo(&self) -> UniformBufferObject {
-        let mut front = Vec3::default();
-        front.x = self.yaw.to_radians().cos() * self.pitch.to_radians().cos();
-        front.y = self.pitch.to_radians().sin();
-        front.z = self.yaw.to_radians().sin() * self.pitch.to_radians().cos();
+        let mut front = TVec3::default();
+        front.x = self.pos.yaw().to_radians().cos() * self.pos.pitch().to_radians().cos();
+        front.y = self.pos.pitch().to_radians().sin();
+        front.z = self.pos.yaw().to_radians().sin() * self.pos.pitch().to_radians().cos();
         let rotation = front.normalize();
-        let view = glm::look_at(&self.pos, &(self.pos + rotation), &glm::vec3(0.0, 1.0, 0.0));
+        let view = glm::look_at(
+            &self.pos,
+            &(*self.pos + rotation),
+            &glm::vec3(0.0, 1.0, 0.0),
+        );
 
         UniformBufferObject {
             view,

@@ -208,10 +208,14 @@ impl Device {
             &[]
         };
 
+        let features = vk::PhysicalDeviceFeatures::builder().shader_int64(true);
+        let mut features12 = vk::PhysicalDeviceVulkan12Features::builder().shader_int8(true);
         let create_info = DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_layer_names(layers)
-            .enabled_extension_names(&extensions);
+            .enabled_extension_names(&extensions)
+            .enabled_features(&features)
+            .push_next(&mut features12);
 
         let device = unsafe { INSTANCE.create_device(physical_device, &create_info, None) }?;
         let graphics_queue = unsafe { device.get_device_queue(graphics_queue_family, 0) };

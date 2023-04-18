@@ -18,5 +18,7 @@ mod uniform;
 mod vertex;
 mod window;
 
+pub use buffer::Buffer;
 pub use renderer::Renderer;
+pub use vertex::Vertex;
 pub use window::Window;

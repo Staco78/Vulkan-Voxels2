@@ -10,12 +10,14 @@ use winit::{
 use crate::{
     inputs::Inputs,
     render::{Renderer, Window},
+    world::World,
 };
 
 #[derive(Debug)]
 pub struct App {
     window: Window,
     renderer: Renderer,
+    world: World,
     inputs: Inputs,
 
     last_frame_time: Instant,
@@ -30,6 +32,7 @@ impl App {
         Ok(Self {
             window,
             renderer,
+            world: World::new(),
             inputs,
             last_frame_time: Instant::now(),
         })
@@ -88,8 +91,12 @@ impl App {
                 let elasped = now - self.last_frame_time;
                 self.last_frame_time = now;
 
+                self.world
+                    .tick(self.renderer.camera_pos())
+                    .context("World ticking failed")?;
+
                 self.renderer
-                    .render(elasped, &self.window, &self.inputs)
+                    .render(elasped, &self.window, &self.inputs, &self.world)
                     .context("Rendering failed")?;
                 None
             }

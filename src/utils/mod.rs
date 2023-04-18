@@ -10,10 +10,10 @@ use std::{
 /// Call `closure` with `data` interpreted as [`&\[T\]`]. If the alignment of `data` is not sufficient for [`T`],
 /// this will alloc a new aligned space and copy `data` into.
 ///
-/// # Safety:
+/// # Safety
 /// Same as `transmute::<F, T>`.
 ///
-/// # Panic:
+/// # Panic
 /// Will panic if the size of [`T`] * `data.len()` is not divisible by the size of [`F`].
 pub unsafe fn with_convert<F, T, C, R>(data: &[F], closure: C) -> R
 where

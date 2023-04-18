@@ -1,7 +1,7 @@
-use std::{fmt::Debug, mem::size_of_val, time::Duration};
+use std::{fmt::Debug, mem::size_of, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use nalgebra_glm as glm;
+use log::debug;
 use vulkanalia::{
     loader::{LibloadingLoader, LIBRARY},
     vk::{self, DeviceV1_0, Handle, HasBuilder, KhrSwapchainExtension},
@@ -12,10 +12,10 @@ use winit::window::Window;
 use crate::{
     inputs::Inputs,
     render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms},
+    world::{EntityPos, World},
 };
 
 use super::{
-    buffer::Buffer,
     camera::Camera,
     commands::{CommandBuffer, CommandPool},
     depth::DepthBuffer,
@@ -34,7 +34,6 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive(Debug)]
 pub struct Renderer {
-    vertex_buffer: Buffer,
     images_in_flight: Fences,
     in_flight_fences: Fences,
     render_finished_semaphores: Semaphores,
@@ -82,29 +81,10 @@ impl Renderer {
         let image_available_semaphores = Semaphores::new(MAX_FRAMES_IN_FLIGHT)?;
         let in_flight_fences = Fences::new(MAX_FRAMES_IN_FLIGHT, true)?;
         let images_in_flight = Fences::from_vec(vec![vk::Fence::null(); swapchain.images.len()]);
-        let vertices = [
-            Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(1.0, 0.0, 0.0)),
-            Vertex::new(glm::vec3(0.5, -0.5, 0.0), glm::vec3(0.0, 1.0, 0.0)),
-            Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 1.0)),
-            Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 1.0)),
-            Vertex::new(glm::vec3(-0.5, 0.5, 0.0), glm::vec3(1.0, 1.0, 1.0)),
-            Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(1.0, 0.0, 0.0)),
-            Vertex::new(glm::vec3(-0.5, -0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
-            Vertex::new(glm::vec3(0.5, -0.5, -0.5), glm::vec3(0.0, 1.0, 0.0)),
-            Vertex::new(glm::vec3(0.5, 0.5, -0.5), glm::vec3(0.0, 0.0, 1.0)),
-            Vertex::new(glm::vec3(0.5, 0.5, -0.5), glm::vec3(0.0, 0.0, 1.0)),
-            Vertex::new(glm::vec3(-0.5, 0.5, -0.5), glm::vec3(1.0, 1.0, 1.0)),
-            Vertex::new(glm::vec3(-0.5, -0.5, -0.5), glm::vec3(1.0, 0.0, 0.0)),
-        ];
-        let mut vertex_buffer =
-            Buffer::new(size_of_val(&vertices), vk::BufferUsageFlags::VERTEX_BUFFER)
-                .context("Vertex buffer creation failed")?;
-        vertex_buffer
-            .fill(&vertices)
-            .context("Vertex buffer filling failed")?;
+
         let camera = Camera::new(swapchain.extent);
 
-        let mut s = Self {
+        Ok(Self {
             _entry: entry,
             surface,
             physical_device,
@@ -119,75 +99,25 @@ impl Renderer {
             render_finished_semaphores,
             in_flight_fences,
             images_in_flight,
-            vertex_buffer,
 
             frame: 0,
             camera,
-        };
-
-        s.record_commands().context("Commands recording failed")?;
-
-        Ok(s)
+        })
     }
 
-    fn record_commands(&mut self) -> Result<()> {
-        for i in 0..self.command_buffers.len() {
-            let buffer = &mut self.command_buffers[i];
-            buffer.begin().context("Command buffer begining failed")?;
-
-            let render_area = vk::Rect2D::builder()
-                .offset(vk::Offset2D::default())
-                .extent(self.swapchain.extent);
-            let color_clear_value = vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            };
-            let depth_clear_value = vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 1.0,
-                    stencil: 0,
-                },
-            };
-            let clear_values = &[color_clear_value, depth_clear_value];
-            let info = vk::RenderPassBeginInfo::builder()
-                .render_pass(self.pipeline.render_pass)
-                .framebuffer(self.framebuffers[i])
-                .render_area(render_area)
-                .clear_values(clear_values);
-            unsafe {
-                DEVICE.cmd_begin_render_pass(buffer.buffer, &info, vk::SubpassContents::INLINE);
-                DEVICE.cmd_bind_pipeline(
-                    buffer.buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.pipeline,
-                );
-                DEVICE.cmd_bind_vertex_buffers(
-                    buffer.buffer,
-                    0,
-                    &[self.vertex_buffer.buffer],
-                    &[0],
-                );
-                DEVICE.cmd_bind_descriptor_sets(
-                    buffer.buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.layout,
-                    0,
-                    &[self.uniforms[i].descriptor_set],
-                    &[],
-                );
-                DEVICE.cmd_draw(buffer.buffer, 12, 1, 0, 0);
-                DEVICE.cmd_end_render_pass(buffer.buffer);
-            };
-
-            buffer.end().context("Command buffer ending failed")?;
-        }
-
-        Ok(())
-    }
-
-    pub fn render(&mut self, elapsed: Duration, window: &Window, inputs: &Inputs) -> Result<()> {
+    pub fn render(
+        &mut self,
+        elapsed: Duration,
+        window: &Window,
+        inputs: &Inputs,
+        world: &World,
+    ) -> Result<()> {
         self.camera.tick(inputs, elapsed);
+
+        if self.frame % 400 == 0 {
+            let fps = 1.0 / elapsed.as_secs_f64();
+            debug!("FPS: {}", fps);
+        }
 
         unsafe {
             DEVICE.wait_for_fences(&[self.in_flight_fences[self.frame]], true, u64::max_value())
@@ -213,6 +143,80 @@ impl Renderer {
             Err(e) => return Err(anyhow!(e).context("Next image acquiring failed")),
         };
 
+        // Commands recording
+        let command_buff = &mut self.command_buffers[image_index as usize];
+        {
+            command_buff.reset()?;
+            command_buff
+                .begin()
+                .context("Command buffer begining failed")?;
+            let render_area = vk::Rect2D::builder()
+                .offset(vk::Offset2D::default())
+                .extent(self.swapchain.extent);
+            let color_clear_value = vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            };
+            let depth_clear_value = vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            };
+            let clear_values = &[color_clear_value, depth_clear_value];
+            let info = vk::RenderPassBeginInfo::builder()
+                .render_pass(self.pipeline.render_pass)
+                .framebuffer(self.framebuffers[image_index as usize])
+                .render_area(render_area)
+                .clear_values(clear_values);
+            unsafe {
+                DEVICE.cmd_begin_render_pass(**command_buff, &info, vk::SubpassContents::INLINE);
+                DEVICE.cmd_bind_pipeline(
+                    **command_buff,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline.pipeline,
+                );
+                DEVICE.cmd_bind_descriptor_sets(
+                    **command_buff,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline.layout,
+                    0,
+                    &[self.uniforms[image_index as usize].descriptor_set],
+                    &[],
+                );
+            }
+
+            for (pos, chunk) in world.chunks().iter() {
+                let vertex_buffer = chunk
+                    .vertex_buffer
+                    .as_ref()
+                    .with_context(|| format!("Chunk {:?} isn't meshed yet", pos))?;
+                unsafe {
+                    DEVICE.cmd_bind_vertex_buffers(
+                        **command_buff,
+                        0,
+                        &[vertex_buffer.buffer],
+                        &[0],
+                    );
+                    DEVICE.cmd_push_constants(
+                        **command_buff,
+                        self.pipeline.layout,
+                        vk::ShaderStageFlags::VERTEX,
+                        0,
+                        pos.as_bytes(),
+                    );
+                    let vertices_count = vertex_buffer.size() / size_of::<Vertex>();
+                    DEVICE.cmd_draw(**command_buff, vertices_count as u32, 1, 0, 0);
+                }
+            }
+            unsafe {
+                DEVICE.cmd_end_render_pass(**command_buff);
+            };
+
+            command_buff.end().context("Command buffer ending failed")?;
+        }
+
         if !self.images_in_flight[image_index as usize].is_null() {
             unsafe {
                 DEVICE.wait_for_fences(
@@ -230,7 +234,7 @@ impl Renderer {
 
         let wait_semaphores = &[self.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[self.command_buffers[image_index as usize].buffer];
+        let command_buffers = &[**command_buff];
         let signal_semaphores = &[self.render_finished_semaphores[self.frame]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
@@ -293,11 +297,14 @@ impl Renderer {
             .context("Command buffers reallocation failed")?;
         self.images_in_flight
             .resize(self.swapchain.images.len(), vk::Fence::null());
-        self.record_commands()
-            .context("Commands recording failed")?;
         self.camera.rebuild_proj(self.swapchain.extent);
 
         Ok(())
+    }
+
+    #[inline]
+    pub fn camera_pos(&self) -> EntityPos {
+        self.camera.pos
     }
 }
 
