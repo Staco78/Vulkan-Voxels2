@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, Handle, HasBuilder, PipelineCache, ShaderModuleCreateInfo};
 
 use crate::{
+    options::AppOptions,
     utils::{self, drop_then_new},
     world::ChunkPos,
 };
@@ -76,7 +77,7 @@ impl Pipeline {
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
-            .polygon_mode(vk::PolygonMode::LINE)
+            .polygon_mode(AppOptions::get().polygon_mode)
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
             .front_face(vk::FrontFace::CLOCKWISE)

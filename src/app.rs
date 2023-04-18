@@ -4,11 +4,14 @@ use anyhow::{Context, Result};
 use log::warn;
 use winit::{
     event::{DeviceEvent, ElementState, Event, KeyboardInput, WindowEvent},
-    event_loop::ControlFlow,
+    event_loop::{ControlFlow, EventLoop},
 };
 
 use crate::{
+    debug,
+    events::{self, MainLoopEvent},
     inputs::Inputs,
+    options::AppOptions,
     render::{Renderer, Window},
     world::World,
 };
@@ -24,7 +27,8 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(window: Window) -> Result<Self> {
+    pub fn new(window: Window, event_loop: &EventLoop<MainLoopEvent>) -> Result<Self> {
+        events::init_proxy(event_loop);
         let renderer = Renderer::new(&window).context("Renderer creation failed")?;
         let inputs = Inputs::new();
         window.grab_cursor();
@@ -38,7 +42,7 @@ impl App {
         })
     }
 
-    pub fn tick_event(&mut self, event: Event<()>) -> Result<Option<ControlFlow>> {
+    pub fn tick_event(&mut self, event: Event<MainLoopEvent>) -> Result<Option<ControlFlow>> {
         let control_flow = match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => Some(ControlFlow::Exit),
@@ -62,7 +66,10 @@ impl App {
                         return Ok(None);
                     };
                     match state {
-                        ElementState::Pressed => self.inputs.key_pressed(key),
+                        ElementState::Pressed => {
+                            debug::key_pressed(key);
+                            self.inputs.key_pressed(key)
+                        }
                         ElementState::Released => self.inputs.key_released(key),
                     }
                     None
@@ -91,16 +98,25 @@ impl App {
                 let elasped = now - self.last_frame_time;
                 self.last_frame_time = now;
 
-                self.world
-                    .tick(self.renderer.camera_pos())
-                    .context("World ticking failed")?;
+                if AppOptions::get().tick_world {
+                    self.world
+                        .tick(self.renderer.camera_pos())
+                        .context("World ticking failed")?;
+                }
 
                 self.renderer
                     .render(elasped, &self.window, &self.inputs, &self.world)
                     .context("Rendering failed")?;
                 None
             }
-
+            Event::UserEvent(event) => match event {
+                MainLoopEvent::RecreatePipeline => {
+                    self.renderer
+                        .recreate_pipeline()
+                        .context("Pipeline recreation failed")?;
+                    None
+                }
+            },
             _ => None,
         };
         Ok(control_flow)

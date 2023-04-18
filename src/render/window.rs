@@ -3,9 +3,11 @@ use std::ops::Deref;
 use anyhow::{Context, Result};
 use log::warn;
 use winit::{
-    event_loop::EventLoop,
+    event_loop::{EventLoop, EventLoopBuilder},
     window::{CursorGrabMode, WindowBuilder},
 };
+
+use crate::events::MainLoopEvent;
 
 #[derive(Debug)]
 pub struct Window {
@@ -21,8 +23,8 @@ impl Deref for Window {
 }
 
 impl Window {
-    pub fn new() -> Result<(Self, EventLoop<()>)> {
-        let event_loop = EventLoop::new();
+    pub fn new() -> Result<(Self, EventLoop<MainLoopEvent>)> {
+        let event_loop = EventLoopBuilder::with_user_event().build();
         let window = WindowBuilder::new()
             .with_title("Vulkan Voxels 2")
             .build(&event_loop)

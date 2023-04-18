@@ -17,9 +17,13 @@
 #![feature(maybe_uninit_write_slice)]
 #![feature(maybe_uninit_slice)]
 #![feature(adt_const_params)]
+#![feature(local_key_cell_methods)]
 
 mod app;
+mod debug;
+mod events;
 mod inputs;
+mod options;
 mod render;
 mod utils;
 mod world;
@@ -35,7 +39,7 @@ fn main() -> Result<()> {
 
     let (window, event_loop) = Window::new()?;
 
-    let mut app = App::new(window)?;
+    let mut app = App::new(window, &event_loop)?;
 
     event_loop.run(move |event, _, control_flow| {
         let r = app.tick_event(event).expect("App ticking failed");

@@ -208,7 +208,9 @@ impl Device {
             &[]
         };
 
-        let features = vk::PhysicalDeviceFeatures::builder().shader_int64(true);
+        let features = vk::PhysicalDeviceFeatures::builder()
+            .shader_int64(true)
+            .fill_mode_non_solid(true);
         let mut features12 = vk::PhysicalDeviceVulkan12Features::builder().shader_int8(true);
         let create_info = DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)

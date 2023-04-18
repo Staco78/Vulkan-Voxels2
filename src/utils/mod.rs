@@ -1,7 +1,7 @@
-mod deref_once_lock;
-use anyhow::Result;
-pub use deref_once_lock::DerefOnceLock;
+mod deref_once;
+pub use deref_once::*;
 
+use anyhow::Result;
 use std::{
     mem::{size_of, size_of_val, MaybeUninit},
     ptr, slice,

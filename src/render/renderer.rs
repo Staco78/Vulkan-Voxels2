@@ -302,6 +302,17 @@ impl Renderer {
         Ok(())
     }
 
+    pub fn recreate_pipeline(&mut self) -> Result<()> {
+        unsafe { DEVICE.device_wait_idle() }.context("Device wait idle failed")?;
+        self.pipeline
+            .recreate(self.physical_device, &self.swapchain, &self.uniforms)
+            .context("Pipeline recreation failed")?;
+        self.framebuffers
+            .recreate(&self.swapchain, &self.pipeline, &self.depth_buffer)
+            .context("Framebuffers recreation failed")?;
+        Ok(())
+    }
+
     #[inline]
     pub fn camera_pos(&self) -> EntityPos {
         self.camera.pos
