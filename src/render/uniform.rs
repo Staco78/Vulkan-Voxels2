@@ -19,8 +19,12 @@ pub struct Uniforms<T> {
 
 impl<T> Uniforms<T> {
     pub fn new(count: usize) -> Result<Self> {
-        let mut buff = Buffer::new(count * size_of::<T>(), vk::BufferUsageFlags::UNIFORM_BUFFER)
-            .context("Buffer creation failed")?;
+        let mut buff = Buffer::new(
+            count * size_of::<T>(),
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )
+        .context("Buffer creation failed")?;
         let ptr = buff
             .map()
             .context("Buffer memory mapping failed")?

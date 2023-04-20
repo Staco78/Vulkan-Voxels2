@@ -16,7 +16,7 @@ pub struct CommandPool {
 
 impl CommandPool {
     pub fn new(physical_device: vk::PhysicalDevice) -> Result<Self> {
-        let graphics_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
+        let graphics_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)
             .expect("A graphics queue should have been found");
         let info = CommandPoolCreateInfo::builder()
             .queue_family_index(graphics_family)
@@ -87,7 +87,7 @@ impl Drop for CommandPool {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CommandBuffer {
     buffer: vk::CommandBuffer,
 }

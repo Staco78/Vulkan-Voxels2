@@ -1,7 +1,7 @@
 use core::slice;
 
 use anyhow::{Context, Result};
-use vulkanalia::vk::{self, DeviceV1_0, HasBuilder, MemoryPropertyFlags};
+use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
 
 use crate::render::memory::allocator;
 
@@ -14,7 +14,11 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn new(size: usize, usage: vk::BufferUsageFlags) -> Result<Self> {
+    pub fn new(
+        size: usize,
+        usage: vk::BufferUsageFlags,
+        alloc_properties: vk::MemoryPropertyFlags,
+    ) -> Result<Self> {
         let info = vk::BufferCreateInfo::builder()
             .size(size as u64)
             .usage(usage);
@@ -24,7 +28,7 @@ impl Buffer {
         let requirements = unsafe { DEVICE.get_buffer_memory_requirements(buffer) };
 
         let alloc = allocator()
-            .alloc(MemoryPropertyFlags::HOST_VISIBLE, requirements)
+            .alloc(alloc_properties, requirements)
             .context("Memory allocation failed")?;
 
         unsafe { DEVICE.bind_buffer_memory(buffer, alloc.memory(), 0) }
@@ -49,11 +53,7 @@ impl Buffer {
         Ok(slice)
     }
 
-    /// Flush and unmap all mapped regions.
-    ///
-    /// # Safety
-    /// Don't use any previously mapped slice after calling this.
-    pub unsafe fn unmap(&mut self) -> Result<()> {
+    pub fn flush(&self) -> Result<()> {
         let memory_ranges = &[vk::MappedMemoryRange::builder()
             .memory(self.alloc.memory())
             .offset(0)
@@ -63,7 +63,6 @@ impl Buffer {
             DEVICE
                 .flush_mapped_memory_ranges(memory_ranges)
                 .context("Memory ranges flush failed")?;
-            DEVICE.unmap_memory(self.alloc.memory());
         };
 
         Ok(())

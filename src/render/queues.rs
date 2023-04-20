@@ -1,4 +1,3 @@
-use anyhow::Result;
 use vulkanalia::vk::{
     self, InstanceV1_0, KhrSurfaceExtension, QueueFamilyProperties, QueueFlags, SurfaceKHR,
 };
@@ -14,7 +13,7 @@ pub fn get_queue_family_filtered<F>(
     device: vk::PhysicalDevice,
     family_type: QueueFlags,
     filter: F,
-) -> Result<Option<u32>>
+) -> Option<u32>
 where
     F: Fn(u32, &QueueFamilyProperties) -> bool,
 {
@@ -28,21 +27,15 @@ where
         .find(|(i, family)| filter(*i, family))
         .unzip();
 
-    Ok(index)
+    index
 }
 
 #[inline]
-pub fn get_queue_family(
-    device: vk::PhysicalDevice,
-    family_type: QueueFlags,
-) -> Result<Option<u32>> {
+pub fn get_queue_family(device: vk::PhysicalDevice, family_type: QueueFlags) -> Option<u32> {
     get_queue_family_filtered(device, family_type, |_, _| true)
 }
 
-pub fn get_present_queue_family(
-    device: vk::PhysicalDevice,
-    surface: SurfaceKHR,
-) -> Result<Option<u32>> {
+pub fn get_present_queue_family(device: vk::PhysicalDevice, surface: SurfaceKHR) -> Option<u32> {
     get_queue_family_filtered(device, QueueFlags::all(), |i, _| unsafe {
         INSTANCE
             .get_physical_device_surface_support_khr(device, i, surface)

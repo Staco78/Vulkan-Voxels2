@@ -50,6 +50,17 @@ impl DerefMut for Semaphores {
     }
 }
 
+#[inline]
+pub fn create_fence(signaled: bool) -> Result<vk::Fence> {
+    let flags = if signaled {
+        vk::FenceCreateFlags::SIGNALED
+    } else {
+        vk::FenceCreateFlags::empty()
+    };
+    let info = vk::FenceCreateInfo::builder().flags(flags);
+    unsafe { DEVICE.create_fence(&info, None) }.context("Fence creation failed")
+}
+
 #[derive(Debug)]
 pub struct Fences {
     fences: Vec<vk::Fence>,

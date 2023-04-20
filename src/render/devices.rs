@@ -172,10 +172,15 @@ impl Device {
     }
 
     fn new(physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> Result<Self> {
-        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
+        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)
             .context("No graphics queue found")?;
-        let present_queue_family = get_present_queue_family(physical_device, surface)?
-            .context("No present queue found")?;
+        let present_queue_family =
+            get_present_queue_family(physical_device, surface).context("No present queue found")?;
+        let transfer_queue_family = get_queue_family(physical_device, QueueFlags::TRANSFER)
+            .context("No transfer queue found")?;
+        if graphics_queue_family != transfer_queue_family {
+            unimplemented!()
+        };
 
         let priority = &[1.0];
 
@@ -190,11 +195,11 @@ impl Device {
                 .queue_family_index(graphics_queue_family)
                 .queue_priorities(priority)
                 .build();
-            let transfer_info = DeviceQueueCreateInfo::builder()
+            let present_info = DeviceQueueCreateInfo::builder()
                 .queue_family_index(present_queue_family)
                 .queue_priorities(priority)
                 .build();
-            vec![graphics_info, transfer_info]
+            vec![graphics_info, present_info]
         };
 
         let extensions = DEVICE_REQUIRED_EXTENSIONS

@@ -33,10 +33,11 @@ impl App {
         let inputs = Inputs::new();
         window.grab_cursor();
         window.set_cursor_visible(false);
+        let physical_device = renderer.physical_device;
         Ok(Self {
             window,
             renderer,
-            world: World::new(),
+            world: World::new(physical_device).context("World creation failed")?,
             inputs,
             last_frame_time: Instant::now(),
         })

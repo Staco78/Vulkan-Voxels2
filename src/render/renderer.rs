@@ -45,7 +45,7 @@ pub struct Renderer {
     pipeline: Pipeline,
     uniforms: Uniforms<UniformBufferObject>,
     swapchain: Swapchain,
-    physical_device: vk::PhysicalDevice,
+    pub physical_device: vk::PhysicalDevice,
     surface: Surface,
     _entry: Entry,
 
@@ -119,15 +119,13 @@ impl Renderer {
             debug!("FPS: {}", fps);
         }
 
-        unsafe {
-            DEVICE.wait_for_fences(&[self.in_flight_fences[self.frame]], true, u64::max_value())
-        }
-        .context("Fence waiting failed")?;
+        unsafe { DEVICE.wait_for_fences(&[self.in_flight_fences[self.frame]], true, u64::MAX) }
+            .context("Fence waiting failed")?;
 
         let result = unsafe {
             DEVICE.acquire_next_image_khr(
                 self.swapchain.swapchain,
-                u64::max_value(),
+                u64::MAX,
                 self.image_available_semaphores[self.frame],
                 vk::Fence::null(),
             )
@@ -142,6 +140,17 @@ impl Renderer {
             }
             Err(e) => return Err(anyhow!(e).context("Next image acquiring failed")),
         };
+
+        if !self.images_in_flight[image_index as usize].is_null() {
+            unsafe {
+                DEVICE.wait_for_fences(
+                    &[self.images_in_flight[image_index as usize]],
+                    true,
+                    u64::MAX,
+                )
+            }
+            .context("Fence waiting failed")?;
+        }
 
         // Commands recording
         let command_buff = &mut self.command_buffers[image_index as usize];
@@ -215,17 +224,6 @@ impl Renderer {
             };
 
             command_buff.end().context("Command buffer ending failed")?;
-        }
-
-        if !self.images_in_flight[image_index as usize].is_null() {
-            unsafe {
-                DEVICE.wait_for_fences(
-                    &[self.images_in_flight[image_index as usize]],
-                    true,
-                    u64::max_value(),
-                )
-            }
-            .context("Fence waiting failed")?;
         }
 
         self.images_in_flight[image_index as usize] = self.in_flight_fences[self.frame];

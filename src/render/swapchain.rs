@@ -53,7 +53,7 @@ impl SwapchainSupport {
     }
 
     fn get_extent(&self, window: &Window) -> vk::Extent2D {
-        if self.capabilities.current_extent.width != u32::max_value() {
+        if self.capabilities.current_extent.width != u32::MAX {
             self.capabilities.current_extent
         } else {
             let size = window.inner_size();
@@ -88,10 +88,10 @@ impl Swapchain {
         window: &Window,
         surface: SurfaceKHR,
     ) -> Result<Self> {
-        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)?
+        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)
             .context("No graphics queue found")?;
-        let present_queue_family = get_present_queue_family(physical_device, surface)?
-            .context("No present queue found")?;
+        let present_queue_family =
+            get_present_queue_family(physical_device, surface).context("No present queue found")?;
 
         let support = SwapchainSupport::get(physical_device, surface)
             .context("Querying swapchain support failed")?;
