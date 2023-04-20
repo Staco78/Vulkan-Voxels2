@@ -10,7 +10,7 @@ use crate::world::EntityPos;
 
 const SENSITIVITY: f32 = 0.05;
 const SPEED: f32 = 30.;
-const FOV: f32 = 45.;
+const FOV: f32 = 80.;
 const NEAR: f32 = 0.1;
 const FAR: f32 = 1000.;
 
@@ -30,7 +30,7 @@ pub struct Camera {
 impl Camera {
     pub fn new(swapchain_extent: vk::Extent2D) -> Self {
         Self {
-            pos: EntityPos::new(0., 0., 0., 0., 0.),
+            pos: EntityPos::new(0., 350., 0., 0., 0.),
             proj: Self::create_proj(swapchain_extent),
         }
     }

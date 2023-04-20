@@ -31,7 +31,7 @@ impl<T> Uniforms<T> {
                 .binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX);
+                .stage_flags(vk::ShaderStageFlags::MESH_EXT);
             let bindings = &[binding];
             let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
             unsafe { DEVICE.create_descriptor_set_layout(&info, None) }

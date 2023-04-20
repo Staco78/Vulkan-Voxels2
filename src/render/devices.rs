@@ -1,10 +1,13 @@
-use std::{ffi::CStr, ops::Deref};
+use std::{
+    ffi::{c_void, CStr},
+    ops::Deref,
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use log::{info, warn};
 use vulkanalia::vk::{
-    self, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceV1_0, HasBuilder, InstanceV1_0,
-    KhrSurfaceExtension, PhysicalDeviceProperties, PhysicalDeviceType, QueueFlags,
+    self, DeviceQueueCreateInfo, DeviceV1_0, HasBuilder, InstanceV1_0, KhrSurfaceExtension,
+    PhysicalDeviceProperties, PhysicalDeviceType, QueueFlags,
 };
 
 use crate::{
@@ -210,14 +213,23 @@ impl Device {
 
         let features = vk::PhysicalDeviceFeatures::builder()
             .shader_int64(true)
+            .shader_int16(true)
             .fill_mode_non_solid(true);
         let mut features12 = vk::PhysicalDeviceVulkan12Features::builder().shader_int8(true);
-        let create_info = DeviceCreateInfo::builder()
+        let mut shader_mesh_feature = vk::PhysicalDeviceMeshShaderFeaturesEXT::builder()
+            .mesh_shader(true)
+            .build();
+        let mut storage_16bit_feature = vk::PhysicalDevice16BitStorageFeatures::builder()
+            .storage_buffer_16bit_access(true)
+            .build();
+        storage_16bit_feature.next = &mut shader_mesh_feature as *mut _ as *mut c_void;
+        shader_mesh_feature.next = &mut features12 as *mut _ as *mut c_void;
+        let create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_layer_names(layers)
             .enabled_extension_names(&extensions)
             .enabled_features(&features)
-            .push_next(&mut features12);
+            .push_next(&mut storage_16bit_feature);
 
         let device = unsafe { INSTANCE.create_device(physical_device, &create_info, None) }?;
         let graphics_queue = unsafe { device.get_device_queue(graphics_queue_family, 0) };

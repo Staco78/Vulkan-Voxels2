@@ -9,7 +9,12 @@ fn main() {
         let shader = shader.unwrap();
         let out_path = out_dir.clone() + "/" + shader.file_name().to_str().unwrap();
         let status = Command::new("glslc")
-            .args(["-o", &out_path, shader.path().to_str().unwrap()])
+            .args([
+                "-o",
+                &out_path,
+                shader.path().to_str().unwrap(),
+                "--target-env=vulkan1.2",
+            ])
             .status()
             .unwrap();
         assert!(status.success());

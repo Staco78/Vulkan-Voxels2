@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     camera::UniformBufferObject, depth::DepthBuffer, devices::DEVICE, swapchain::Swapchain,
-    uniform::Uniforms, vertex::Vertex,
+    uniform::Uniforms,
 };
 
 macro_rules! shader_module {
@@ -40,25 +40,17 @@ impl Pipeline {
         uniforms: &Uniforms<UniformBufferObject>,
     ) -> Result<Self> {
         let frag_module = shader_module!("shader.frag")?;
-        let vert_module = shader_module!("shader.vert")?;
+        let mesh_module = shader_module!("shader.mesh")?;
 
-        let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_module)
-            .name(b"main\0");
         let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
             .stage(vk::ShaderStageFlags::FRAGMENT)
             .module(frag_module)
             .name(b"main\0");
+        let mesh_stage = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::MESH_EXT)
+            .module(mesh_module)
+            .name(b"main\0");
 
-        let binding_descriptions = &[Vertex::binding_description()];
-        let attribute_descriptions = Vertex::attribute_descriptions();
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_binding_descriptions(binding_descriptions)
-            .vertex_attribute_descriptions(&attribute_descriptions);
-        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-            .primitive_restart_enable(false);
         let viewport = vk::Viewport::builder()
             .x(0.0)
             .y(0.0)
@@ -79,7 +71,7 @@ impl Pipeline {
             .rasterizer_discard_enable(false)
             .polygon_mode(AppOptions::get().polygon_mode)
             .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
+            .cull_mode(vk::CullModeFlags::NONE)
             .front_face(vk::FrontFace::CLOCKWISE)
             .depth_bias_enable(false);
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
@@ -102,11 +94,22 @@ impl Pipeline {
             .stencil_test_enable(false);
 
         let vert_push_constant_range = vk::PushConstantRange::builder()
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .stage_flags(vk::ShaderStageFlags::MESH_EXT)
             .offset(0)
             .size(size_of::<ChunkPos>() as u32);
 
-        let layouts = [uniforms.descriptor_layout];
+        let descriptor_layout = {
+            let binding = vk::DescriptorSetLayoutBinding::builder()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::MESH_EXT);
+            let bindings = &[binding];
+            let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
+            unsafe { DEVICE.create_descriptor_set_layout(&info, None) }
+                .context("Descriptor set layout creation failed")?
+        };
+        let layouts = [uniforms.descriptor_layout, descriptor_layout];
         let push_constant_ranges = [vert_push_constant_range];
         let layout_info = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&layouts)
@@ -120,11 +123,9 @@ impl Pipeline {
         let render_pass = create_render_pass(physical_device, swapchain)
             .context("Render pass creation failed")?;
 
-        let stages = &[vert_stage, frag_stage];
+        let stages = &[frag_stage, mesh_stage];
         let info = vk::GraphicsPipelineCreateInfo::builder()
             .stages(stages)
-            .vertex_input_state(&vertex_input_state)
-            .input_assembly_state(&input_assembly_state)
             .viewport_state(&viewport_state)
             .rasterization_state(&rasterization_state)
             .multisample_state(&multisample_state)
@@ -141,7 +142,7 @@ impl Pipeline {
 
         unsafe {
             DEVICE.destroy_shader_module(frag_module, None);
-            DEVICE.destroy_shader_module(vert_module, None);
+            DEVICE.destroy_shader_module(mesh_module, None);
         };
 
         Ok(Self {

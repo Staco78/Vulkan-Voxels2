@@ -1,10 +1,10 @@
-use std::{fmt::Debug, mem::size_of, time::Duration};
+use std::{fmt::Debug, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use log::debug;
 use vulkanalia::{
     loader::{LibloadingLoader, LIBRARY},
-    vk::{self, DeviceV1_0, Handle, HasBuilder, KhrSwapchainExtension},
+    vk::{self, DeviceV1_0, ExtMeshShaderExtension, Handle, HasBuilder, KhrSwapchainExtension},
     Entry,
 };
 use winit::window::Window;
@@ -12,7 +12,7 @@ use winit::window::Window;
 use crate::{
     inputs::Inputs,
     render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms},
-    world::{EntityPos, World},
+    world::{EntityPos, World, CHUNK_SIZE},
 };
 
 use super::{
@@ -27,7 +27,6 @@ use super::{
     surface::Surface,
     swapchain::Swapchain,
     sync::{Fences, Semaphores},
-    vertex::Vertex,
 };
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
@@ -188,26 +187,28 @@ impl Renderer {
             }
 
             for (pos, chunk) in world.chunks().iter() {
-                let vertex_buffer = chunk
-                    .vertex_buffer
-                    .as_ref()
-                    .with_context(|| format!("Chunk {:?} isn't meshed yet", pos))?;
                 unsafe {
-                    DEVICE.cmd_bind_vertex_buffers(
+                    DEVICE.cmd_bind_descriptor_sets(
                         **command_buff,
-                        0,
-                        &[vertex_buffer.buffer],
-                        &[0],
+                        vk::PipelineBindPoint::GRAPHICS,
+                        self.pipeline.layout,
+                        1,
+                        &[chunk.descriptor_set],
+                        &[],
                     );
                     DEVICE.cmd_push_constants(
                         **command_buff,
                         self.pipeline.layout,
-                        vk::ShaderStageFlags::VERTEX,
+                        vk::ShaderStageFlags::MESH_EXT,
                         0,
                         pos.as_bytes(),
                     );
-                    let vertices_count = vertex_buffer.size() / size_of::<Vertex>();
-                    DEVICE.cmd_draw(**command_buff, vertices_count as u32, 1, 0, 0);
+                    DEVICE.cmd_draw_mesh_tasks_ext(
+                        **command_buff,
+                        CHUNK_SIZE as u32,
+                        CHUNK_SIZE as u32,
+                        CHUNK_SIZE as u32,
+                    );
                 }
             }
             unsafe {

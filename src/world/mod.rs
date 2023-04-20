@@ -5,18 +5,16 @@ mod pos;
 use anyhow::{Context, Result};
 pub use pos::*;
 
-use core::slice;
-use std::{collections::HashMap, mem::size_of, ops::Deref, sync::RwLock};
+use std::{collections::HashMap, mem::size_of, ops::Deref, ptr, sync::RwLock};
 
-use crate::render::{Buffer, Vertex};
+use crate::render::Buffer;
 
 use vulkanalia::vk;
 
-use self::chunk::Chunk;
+use self::{blocks::BlockId, chunk::Chunk};
 
 pub const CHUNK_SIZE: usize = 32;
 pub const BLOCKS_PER_CHUNK: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
-pub const MAX_VERTICES_PER_CHUNK: usize = BLOCKS_PER_CHUNK * 18;
 pub const RENDER_DISTANCE: usize = 2;
 
 #[derive(Debug)]
@@ -38,25 +36,30 @@ impl World {
         for x in (px - RENDER_DISTANCE as i64)..=(px + RENDER_DISTANCE as i64) {
             for y in (py - RENDER_DISTANCE as i64)..=(py + RENDER_DISTANCE as i64) {
                 for z in (pz - RENDER_DISTANCE as i64)..=(pz + RENDER_DISTANCE as i64) {
+                    if y > 10 {
+                        continue;
+                    }
                     let chunk_pos = ChunkPos::new(x, y, z);
                     if chunks.contains_key(&chunk_pos) {
                         continue;
                     }
-                    let mut chunk = Chunk::generate(chunk_pos);
-                    let mut buff =
-                        Buffer::new(MAX_VERTICES_PER_CHUNK, vk::BufferUsageFlags::VERTEX_BUFFER)
-                            .context("Buffer creation failed")?;
+                    let mut buff = Buffer::new(
+                        BLOCKS_PER_CHUNK * size_of::<BlockId>(),
+                        vk::BufferUsageFlags::STORAGE_BUFFER,
+                    )
+                    .context("Buffer creation failed")?;
+                    let mut chunk = Chunk::generate(chunk_pos, &buff)?;
                     let data = buff.map().context("Buffer map failed")?;
-                    let vertices = unsafe {
-                        slice::from_raw_parts_mut(
-                            data.as_ptr() as *mut Vertex,
-                            data.len() / size_of::<Vertex>(),
+                    unsafe {
+                        ptr::copy_nonoverlapping(
+                            chunk.blocks.as_ptr(),
+                            data.as_ptr() as *mut BlockId,
+                            BLOCKS_PER_CHUNK,
                         )
                     };
-                    chunk.mesh(vertices);
                     // Safety: `data` and `vertices` aren't reused after this call.
                     unsafe { buff.unmap() }.context("Buffer unmap failed")?;
-                    chunk.vertex_buffer = Some(buff);
+                    chunk.buffer = Some(buff);
                     chunks.insert(chunk_pos, chunk);
                 }
             }
