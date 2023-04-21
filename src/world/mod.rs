@@ -12,9 +12,9 @@ use std::{
     sync::{Mutex, RwLock},
 };
 
-use crate::render::{queues, Buffer, CommandBuffer, CommandPool, StagingBuffer, Vertex, DEVICE};
+use crate::render::{Buffer, CommandBuffer, CommandPool, Queue, StagingBuffer, Vertex, QUEUES};
 
-use vulkanalia::vk::{self, DeviceV1_0};
+use vulkanalia::vk;
 
 use self::chunk::Chunk;
 
@@ -28,21 +28,19 @@ pub struct World {
     chunks: RwLock<HashMap<ChunkPos, Chunk>>,
     staging_buffer: Mutex<StagingBuffer>,
 
-    transfer_queue: vk::Queue,
+    transfer_queue: Queue,
     _command_pool: CommandPool,
     command_buff: Mutex<CommandBuffer>,
 }
 
 impl World {
-    pub fn new(physical_device: vk::PhysicalDevice) -> Result<World> {
+    pub fn new() -> Result<World> {
         let staging_buffer = StagingBuffer::new(MAX_VERTICES_PER_CHUNK * size_of::<Vertex>())
             .context("Staging buffer creation failed")?;
 
-        let transfer_family = queues::get_queue_family(physical_device, vk::QueueFlags::TRANSFER)
-            .context("No transfer queue family")?;
-        let transfer_queue = unsafe { DEVICE.get_device_queue(transfer_family, 0) };
+        let transfer_queue = QUEUES.fetch_queue(vk::QueueFlags::TRANSFER)?;
         let command_pool =
-            CommandPool::new(physical_device).context("Command pool creation failed")?;
+            CommandPool::new(transfer_queue.family).context("Command pool creation failed")?;
         let command_buff = command_pool
             .alloc_buffers(1)
             .context("Command buffer allocation failed")?
@@ -97,7 +95,7 @@ impl World {
         let mut command_buff = self.command_buff.lock().expect("Mutex poisoned");
         staging_buffer
             .copy_into(
-                self.transfer_queue,
+                *self.transfer_queue,
                 &mut command_buff,
                 &mut vertex_buff,
                 vertices_count * size_of::<Vertex>(),

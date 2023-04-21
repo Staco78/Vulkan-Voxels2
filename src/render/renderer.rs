@@ -24,6 +24,7 @@ use super::{
     instance::Instance,
     memory::init_allocator,
     pipeline::Pipeline,
+    queues::QUEUES,
     surface::Surface,
     swapchain::Swapchain,
     sync::{Fences, Semaphores},
@@ -45,7 +46,7 @@ pub struct Renderer {
     pipeline: Pipeline,
     uniforms: Uniforms<UniformBufferObject>,
     swapchain: Swapchain,
-    pub physical_device: vk::PhysicalDevice,
+    physical_device: vk::PhysicalDevice,
     surface: Surface,
     _entry: Entry,
 
@@ -73,7 +74,7 @@ impl Renderer {
         let depth_buffer = DepthBuffer::new(physical_device, &swapchain)
             .context("Depth buffer creation failed")?;
         let framebuffers = Framebuffers::new(&swapchain, &pipeline, &depth_buffer)?;
-        let command_pool = CommandPool::new(physical_device)?;
+        let command_pool = CommandPool::new(QUEUES.get_default_graphics().family)?;
         let command_buffers = command_pool
             .alloc_buffers(framebuffers.count())
             .context("Command buffers allocation failed")?;
@@ -261,7 +262,7 @@ impl Renderer {
             .swapchains(swapchains)
             .image_indices(image_indices);
 
-        let result = unsafe { DEVICE.queue_present_khr(DEVICE.present_queue, &present_info) };
+        let result = unsafe { DEVICE.queue_present_khr(DEVICE.graphics_queue, &present_info) };
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
 

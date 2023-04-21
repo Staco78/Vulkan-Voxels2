@@ -9,7 +9,7 @@ mod image;
 mod instance;
 mod memory;
 mod pipeline;
-pub mod queues;
+mod queues;
 mod renderer;
 mod staging;
 mod surface;
@@ -21,7 +21,7 @@ mod window;
 
 pub use buffer::Buffer;
 pub use commands::{CommandBuffer, CommandPool};
-pub use devices::DEVICE;
+pub use queues::{Queue, QueueInfo, QUEUES};
 pub use renderer::Renderer;
 pub use staging::StagingBuffer;
 pub use vertex::Vertex;

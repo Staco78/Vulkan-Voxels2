@@ -1,11 +1,7 @@
 use std::ops::Deref;
 
 use anyhow::{Context, Result};
-use vulkanalia::vk::{
-    self, CommandPoolCreateInfo, CommandPoolResetFlags, DeviceV1_0, HasBuilder, QueueFlags,
-};
-
-use crate::render::queues::get_queue_family;
+use vulkanalia::vk::{self, CommandPoolCreateInfo, CommandPoolResetFlags, DeviceV1_0, HasBuilder};
 
 use super::devices::DEVICE;
 
@@ -15,11 +11,9 @@ pub struct CommandPool {
 }
 
 impl CommandPool {
-    pub fn new(physical_device: vk::PhysicalDevice) -> Result<Self> {
-        let graphics_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)
-            .expect("A graphics queue should have been found");
+    pub fn new(queue_family: u32) -> Result<Self> {
         let info = CommandPoolCreateInfo::builder()
-            .queue_family_index(graphics_family)
+            .queue_family_index(queue_family)
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
         let pool = unsafe { DEVICE.create_command_pool(&info, None) }
             .context("Command pool creation failed")?;

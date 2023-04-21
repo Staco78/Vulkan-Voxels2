@@ -30,7 +30,7 @@ pub struct Camera {
 impl Camera {
     pub fn new(swapchain_extent: vk::Extent2D) -> Self {
         Self {
-            pos: EntityPos::new(0., 0., 0., 0., 0.),
+            pos: EntityPos::new(0., 300., 0., 0., 0.),
             proj: Self::create_proj(swapchain_extent),
         }
     }

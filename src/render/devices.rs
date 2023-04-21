@@ -3,23 +3,18 @@ use std::{ffi::CStr, ops::Deref};
 use anyhow::{anyhow, bail, Context, Result};
 use log::{info, warn};
 use vulkanalia::vk::{
-    self, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceV1_0, HasBuilder, InstanceV1_0,
-    KhrSurfaceExtension, PhysicalDeviceProperties, PhysicalDeviceType, QueueFlags,
+    self, DeviceCreateInfo, DeviceV1_0, HasBuilder, InstanceV1_0, KhrSurfaceExtension,
+    PhysicalDeviceProperties, PhysicalDeviceType, QueueFlags,
 };
 
 use crate::{
-    render::{
-        config::VALIDATION_LAYERS,
-        instance::INSTANCE,
-        queues::{get_queue_families, get_queue_family},
-        swapchain::SwapchainSupport,
-    },
+    render::{config::VALIDATION_LAYERS, instance::INSTANCE, swapchain::SwapchainSupport},
     utils::DerefOnceLock,
 };
 
 use super::{
     config::{DEVICE_REQUIRED_EXTENSIONS, VALIDATION_ENABLED},
-    queues::get_present_queue_family,
+    queues::{get_queue_families, QueuesManager, QUEUES},
 };
 
 pub fn pick_physical(surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
@@ -144,7 +139,6 @@ pub static DEVICE: DerefOnceLock<Device, "Device not initialized"> = DerefOnceLo
 pub struct Device {
     pub device: vulkanalia::Device,
     pub graphics_queue: vk::Queue,
-    pub present_queue: vk::Queue,
 }
 
 impl Deref for Device {
@@ -172,35 +166,7 @@ impl Device {
     }
 
     fn new(physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> Result<Self> {
-        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)
-            .context("No graphics queue found")?;
-        let present_queue_family =
-            get_present_queue_family(physical_device, surface).context("No present queue found")?;
-        let transfer_queue_family = get_queue_family(physical_device, QueueFlags::TRANSFER)
-            .context("No transfer queue found")?;
-        if graphics_queue_family != transfer_queue_family {
-            unimplemented!()
-        };
-
-        let priority = &[1.0];
-
-        let queue_create_infos = if graphics_queue_family == present_queue_family {
-            let info = DeviceQueueCreateInfo::builder()
-                .queue_family_index(graphics_queue_family)
-                .queue_priorities(priority)
-                .build();
-            vec![info]
-        } else {
-            let graphics_info = DeviceQueueCreateInfo::builder()
-                .queue_family_index(graphics_queue_family)
-                .queue_priorities(priority)
-                .build();
-            let present_info = DeviceQueueCreateInfo::builder()
-                .queue_family_index(present_queue_family)
-                .queue_priorities(priority)
-                .build();
-            vec![graphics_info, present_info]
-        };
+        let queue_create_infos = QueuesManager::init(physical_device, surface)?;
 
         let extensions = DEVICE_REQUIRED_EXTENSIONS
             .iter()
@@ -224,14 +190,15 @@ impl Device {
             .enabled_features(&features)
             .push_next(&mut features12);
 
+        let graphics_queue_info = QUEUES.get_default_graphics();
         let device = unsafe { INSTANCE.create_device(physical_device, &create_info, None) }?;
-        let graphics_queue = unsafe { device.get_device_queue(graphics_queue_family, 0) };
-        let present_queue = unsafe { device.get_device_queue(present_queue_family, 0) };
+        let graphics_queue = unsafe {
+            device.get_device_queue(graphics_queue_info.family, graphics_queue_info.index)
+        };
 
         Ok(Self {
             device,
             graphics_queue,
-            present_queue,
         })
     }
 }

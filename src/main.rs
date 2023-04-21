@@ -17,7 +17,7 @@
 #![feature(maybe_uninit_write_slice)]
 #![feature(maybe_uninit_slice)]
 #![feature(adt_const_params)]
-#![feature(local_key_cell_methods)]
+#![feature(lazy_cell)]
 
 mod app;
 mod debug;

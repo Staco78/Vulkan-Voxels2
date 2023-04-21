@@ -1,14 +1,10 @@
 use anyhow::{Context, Result};
 use vulkanalia::vk::{
-    self, DeviceV1_0, Handle, HasBuilder, KhrSurfaceExtension, KhrSwapchainExtension, QueueFlags,
-    SurfaceKHR,
+    self, DeviceV1_0, Handle, HasBuilder, KhrSurfaceExtension, KhrSwapchainExtension, SurfaceKHR,
 };
 use winit::window::Window;
 
-use crate::{
-    render::queues::{get_present_queue_family, get_queue_family},
-    utils::drop_then_new,
-};
+use crate::utils::drop_then_new;
 
 use super::{devices::DEVICE, image::create_image_view, instance::INSTANCE};
 
@@ -88,11 +84,6 @@ impl Swapchain {
         window: &Window,
         surface: SurfaceKHR,
     ) -> Result<Self> {
-        let graphics_queue_family = get_queue_family(physical_device, QueueFlags::GRAPHICS)
-            .context("No graphics queue found")?;
-        let present_queue_family =
-            get_present_queue_family(physical_device, surface).context("No present queue found")?;
-
         let support = SwapchainSupport::get(physical_device, surface)
             .context("Querying swapchain support failed")?;
 
@@ -107,15 +98,6 @@ impl Swapchain {
             image_count = support.capabilities.max_image_count;
         }
 
-        let mut queue_family_indices = vec![];
-        let image_sharing_mode = if graphics_queue_family != present_queue_family {
-            queue_family_indices.push(graphics_queue_family);
-            queue_family_indices.push(present_queue_family);
-            vk::SharingMode::CONCURRENT
-        } else {
-            vk::SharingMode::EXCLUSIVE
-        };
-
         let info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface)
             .min_image_count(image_count)
@@ -124,8 +106,8 @@ impl Swapchain {
             .image_extent(extent)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-            .image_sharing_mode(image_sharing_mode)
-            .queue_family_indices(&queue_family_indices)
+            .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .queue_family_indices(&[])
             .pre_transform(support.capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
