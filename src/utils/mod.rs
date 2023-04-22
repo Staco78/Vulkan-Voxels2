@@ -53,3 +53,26 @@ where
     }
     Ok(())
 }
+
+/// Call `closure` to initialize each element.
+#[inline]
+pub fn try_init_array<T, const N: usize, C>(closure: C) -> Result<[T; N]>
+where
+    C: Fn() -> Result<T>,
+{
+    let mut array: [MaybeUninit<T>; N] = MaybeUninit::uninit_array();
+    for buff in array.iter_mut() {
+        buff.write(closure()?);
+    }
+    Ok(unsafe { MaybeUninit::array_assume_init(array) })
+}
+
+/// Call `closure` to initialize each element.
+#[inline]
+#[allow(unused)]
+pub fn init_array<T, const N: usize, C>(closure: C) -> [T; N]
+where
+    C: Fn() -> T,
+{
+    unsafe { try_init_array(|| Ok(closure())).unwrap_unchecked() }
+}

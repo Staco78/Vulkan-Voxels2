@@ -1,4 +1,4 @@
-use std::{fmt::Debug, mem::size_of, time::Duration};
+use std::{fmt::Debug, mem::size_of, sync::TryLockError, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use log::debug;
@@ -198,10 +198,16 @@ impl Renderer {
             }
 
             for (pos, chunk) in world.chunks().iter() {
-                let vertex_buffer = chunk
-                    .vertex_buffer
-                    .as_ref()
-                    .with_context(|| format!("Chunk {:?} isn't meshed yet", pos))?;
+                let r = chunk.try_lock();
+                let chunk = match r {
+                    Ok(chunk) => chunk,
+                    Err(TryLockError::WouldBlock) => continue,
+                    Err(TryLockError::Poisoned(_)) => panic!("Mutex poisoned"),
+                };
+                let vertex_buffer = match &chunk.vertex_buffer {
+                    Some(buff) => buff,
+                    None => continue,
+                };
                 unsafe {
                     DEVICE.cmd_bind_vertex_buffers(
                         **command_buff,

@@ -166,7 +166,7 @@ impl Device {
     }
 
     fn new(physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> Result<Self> {
-        let queue_create_infos = QueuesManager::init(physical_device, surface)?;
+        let (_priorities, queue_create_infos) = QueuesManager::init(physical_device, surface)?;
 
         let extensions = DEVICE_REQUIRED_EXTENSIONS
             .iter()
@@ -191,6 +191,7 @@ impl Device {
             .push_next(&mut features12);
 
         let graphics_queue_info = QUEUES.get_default_graphics();
+        // Safety: _priorities is dropped after this
         let device = unsafe { INSTANCE.create_device(physical_device, &create_info, None) }?;
         let graphics_queue = unsafe {
             device.get_device_queue(graphics_queue_info.family, graphics_queue_info.index)

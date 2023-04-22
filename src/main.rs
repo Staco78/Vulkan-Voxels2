@@ -18,6 +18,8 @@
 #![feature(maybe_uninit_slice)]
 #![feature(adt_const_params)]
 #![feature(lazy_cell)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_array_assume_init)]
 
 mod app;
 mod debug;

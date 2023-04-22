@@ -1,16 +1,15 @@
 use core::slice;
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
 
-use super::{commands::CommandBuffer, devices::DEVICE, sync::create_fence, Buffer};
+use super::{commands::CommandBuffer, devices::DEVICE, Buffer};
 
 #[derive(Debug)]
 pub struct StagingBuffer {
     buff: Buffer,
     data: *mut u8,
-    pub fence: vk::Fence,
 }
 
 impl StagingBuffer {
@@ -21,8 +20,7 @@ impl StagingBuffer {
             vk::MemoryPropertyFlags::HOST_VISIBLE,
         )?;
         let data = buff.map()?.as_mut_ptr();
-        let fence = create_fence(false)?;
-        Ok(Self { buff, data, fence })
+        Ok(Self { buff, data })
     }
 
     /// Get a mutable slice to the buffer data.
@@ -31,6 +29,7 @@ impl StagingBuffer {
     /// Same as `mem::transmute<[u8], [T]>`.
     #[inline]
     pub unsafe fn data<T>(&mut self) -> &mut [T] {
+        assert_eq!(self.data as usize % align_of::<T>(), 0);
         let len = self.buff.size() / size_of::<T>();
         unsafe { slice::from_raw_parts_mut(self.data as *mut _, len) }
     }
@@ -39,6 +38,7 @@ impl StagingBuffer {
         &self,
         queue: vk::Queue,
         command_buff: &mut CommandBuffer,
+        fence: vk::Fence,
         dst: &mut Buffer,
         size: usize,
     ) -> Result<()> {
@@ -53,17 +53,9 @@ impl StagingBuffer {
 
         let buffers = &[**command_buff];
         let submit_info = vk::SubmitInfo::builder().command_buffers(buffers);
-        unsafe { DEVICE.queue_submit(queue, &[submit_info], self.fence) }
+        unsafe { DEVICE.queue_submit(queue, &[submit_info], fence) }
             .context("Queue submitting failed")?;
 
-        Ok(())
-    }
-
-    #[inline]
-    pub fn wait_copy_end(&self) -> Result<()> {
-        unsafe { DEVICE.wait_for_fences(&[self.fence], true, u64::MAX) }
-            .context("Fence waiting failed")?;
-        unsafe { DEVICE.reset_fences(&[self.fence]) }.context("Reset fence failed")?;
         Ok(())
     }
 }

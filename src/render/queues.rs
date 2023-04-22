@@ -5,7 +5,7 @@ use vulkanalia::vk::{
     self, DeviceV1_0, HasBuilder, InstanceV1_0, KhrSurfaceExtension, QueueFamilyProperties,
 };
 
-use crate::utils::DerefOnceLock;
+use crate::{utils::DerefOnceLock, world};
 
 use super::{devices::DEVICE, instance::INSTANCE};
 
@@ -43,7 +43,7 @@ struct QueueFamilyInfo {
 }
 
 const GRAPHICS_COUNT: usize = 1;
-const TRANSFER_COUNT: usize = 1;
+const TRANSFER_COUNT: usize = world::meshing::THREADS_COUNT;
 
 pub static QUEUES: DerefOnceLock<QueuesManager, "Queues manager not initialized"> =
     DerefOnceLock::new();
@@ -58,7 +58,7 @@ impl QueuesManager {
     pub fn init(
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-    ) -> Result<Vec<vk::DeviceQueueCreateInfo>> {
+    ) -> Result<(Vec<f32>, Vec<vk::DeviceQueueCreateInfo>)> {
         let (queues, create_infos) = Self::new(physical_device, surface)?;
         QUEUES
             .inner()
@@ -67,10 +67,11 @@ impl QueuesManager {
         Ok(create_infos)
     }
 
+    #[allow(clippy::type_complexity)]
     fn new(
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-    ) -> Result<(Self, Vec<vk::DeviceQueueCreateInfo>)> {
+    ) -> Result<(Self, (Vec<f32>, Vec<vk::DeviceQueueCreateInfo>))> {
         let families = get_queue_families(physical_device);
         let mut selected_families = vec![];
         let mut found_graphics = 0;
@@ -147,12 +148,12 @@ impl QueuesManager {
                 families: Mutex::new(families),
                 graphics,
             },
-            create_infos,
+            (priorities, create_infos),
         ))
     }
 
     /// Get the info for the graphics queue used for rendering and presenting.
-    #[inline]
+    #[inline(always)]
     pub fn get_default_graphics(&self) -> QueueInfo {
         self.graphics
     }
