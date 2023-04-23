@@ -71,7 +71,7 @@ impl Instance {
             vk::make_version(major, minor, patch)
         };
         let app_info = ApplicationInfo::builder()
-            .api_version(vk::make_version(1, 2, 0))
+            .api_version(vk::make_version(1, 0, 0))
             .application_name(b"Vulkan Voxels 2\0")
             .application_version(app_version);
 

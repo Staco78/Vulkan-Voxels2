@@ -1,14 +1,12 @@
 use std::mem::size_of;
 
 use memoffset::offset_of;
-use nalgebra_glm::TVec3;
 use vulkanalia::vk::{self, HasBuilder};
 
 #[derive(Debug)]
 #[repr(C)]
 pub struct Vertex {
-    pub pos: TVec3<u8>,
-    pub light_modifier: u8,
+    pub data: u32,
 }
 
 impl Vertex {
@@ -20,20 +18,12 @@ impl Vertex {
             .build()
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
-        [
-            vk::VertexInputAttributeDescription::builder()
-                .binding(0)
-                .location(0)
-                .format(vk::Format::R8G8B8_UINT)
-                .offset(offset_of!(Self, pos) as u32)
-                .build(),
-            vk::VertexInputAttributeDescription::builder()
-                .binding(0)
-                .location(1)
-                .format(vk::Format::R8_UINT)
-                .offset(offset_of!(Self, light_modifier) as u32)
-                .build(),
-        ]
+    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 1] {
+        [vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32_UINT)
+            .offset(offset_of!(Self, data) as u32)
+            .build()]
     }
 }

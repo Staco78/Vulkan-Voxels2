@@ -85,12 +85,14 @@ impl Chunk {
 
         let mut i = 0;
 
-        let mut emit_face = |face: &[TVec3<u8>; 6], light_modifier: u8, pos: LocalBlockPos| {
+        let mut emit_face = |face: &[TVec3<u8>; 6], light_modifier: u32, pos: LocalBlockPos| {
             for local_pos in face.iter() {
-                let vertex = Vertex {
-                    pos: *pos + local_pos,
-                    light_modifier,
-                };
+                let pos = *pos + local_pos;
+                let data: u32 = pos.x as u32
+                    | (pos.y as u32) << 6
+                    | (pos.z as u32) << 12
+                    | light_modifier << 18;
+                let vertex = Vertex { data };
                 buff[i] = vertex;
                 i += 1;
             }
@@ -103,26 +105,26 @@ impl Chunk {
                 if pos.x as usize >= CHUNK_SIZE - 1
                     || self.blocks[pos.add(1, 0, 0).to_index()] == BlockId::Air
                 {
-                    emit_face(&BACK, 6, pos);
+                    emit_face(&BACK, 1, pos);
                 }
                 if pos.x == 0 || self.blocks[pos.add(-1, 0, 0).to_index()] == BlockId::Air {
-                    emit_face(&FRONT, 6, pos);
+                    emit_face(&FRONT, 1, pos);
                 }
                 if pos.z as usize >= CHUNK_SIZE - 1
                     || self.blocks[pos.add(0, 0, 1).to_index()] == BlockId::Air
                 {
-                    emit_face(&RIGHT, 8, pos);
+                    emit_face(&RIGHT, 2, pos);
                 }
                 if pos.z == 0 || self.blocks[pos.add(0, 0, -1).to_index()] == BlockId::Air {
-                    emit_face(&LEFT, 8, pos);
+                    emit_face(&LEFT, 2, pos);
                 }
                 if pos.y as usize >= CHUNK_SIZE - 1
                     || self.blocks[pos.add(0, 1, 0).to_index()] == BlockId::Air
                 {
-                    emit_face(&UP, 10, pos);
+                    emit_face(&UP, 3, pos);
                 }
                 if pos.y == 0 || self.blocks[pos.add(0, -1, 0).to_index()] == BlockId::Air {
-                    emit_face(&DOWN, 4, pos);
+                    emit_face(&DOWN, 0, pos);
                 }
             }
         }

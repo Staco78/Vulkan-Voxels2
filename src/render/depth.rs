@@ -38,10 +38,9 @@ impl DepthBuffer {
 
     pub fn get_format(physical_device: vk::PhysicalDevice) -> Option<vk::Format> {
         let formats = [
-            vk::Format::D16_UNORM,
+            vk::Format::D24_UNORM_S8_UINT,
             vk::Format::D32_SFLOAT,
             vk::Format::D32_SFLOAT_S8_UINT,
-            vk::Format::D24_UNORM_S8_UINT,
         ];
 
         formats.iter().copied().find(|&format| {
