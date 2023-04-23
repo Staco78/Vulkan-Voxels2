@@ -10,7 +10,7 @@ use super::{blocks::BlockId, pos::ChunkPos, BLOCKS_PER_CHUNK, CHUNK_SIZE};
 
 #[derive(Debug)]
 pub struct Chunk {
-    pos: ChunkPos,
+    pub pos: ChunkPos,
     blocks: [BlockId; BLOCKS_PER_CHUNK],
     pub vertex_buffer: Option<Buffer>,
 }

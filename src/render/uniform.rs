@@ -23,12 +23,10 @@ impl<T> Uniforms<T> {
             count * size_of::<T>(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE,
+            true,
         )
         .context("Buffer creation failed")?;
-        let ptr = buff
-            .map()
-            .context("Buffer memory mapping failed")?
-            .as_mut_ptr() as *mut T;
+        let ptr = buff.data()?.as_mut_ptr() as *mut T;
 
         let descriptor_layout = {
             let binding = vk::DescriptorSetLayoutBinding::builder()

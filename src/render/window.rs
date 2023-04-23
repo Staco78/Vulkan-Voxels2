@@ -33,9 +33,9 @@ impl Window {
     }
 
     pub fn grab_cursor(&self) {
-        self.set_cursor_grab(CursorGrabMode::Confined)
-            .or_else(|e| self.set_cursor_grab(CursorGrabMode::Locked).context(e))
-            .unwrap_or_else(|_| warn!("Cursor grabbing failed"))
+        // self.set_cursor_grab(CursorGrabMode::Confined)
+        //     .or_else(|e| self.set_cursor_grab(CursorGrabMode::Locked).context(e))
+        //     .unwrap_or_else(|_| warn!("Cursor grabbing failed"))
     }
 
     pub fn release_cursor(&self) {

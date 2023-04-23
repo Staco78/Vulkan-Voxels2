@@ -74,7 +74,7 @@ impl Image {
         let requirements = unsafe { DEVICE.get_image_memory_requirements(image) };
 
         let alloc = allocator()
-            .alloc(vk::MemoryPropertyFlags::DEVICE_LOCAL, requirements)
+            .alloc(vk::MemoryPropertyFlags::DEVICE_LOCAL, requirements, false)
             .context("Alloc failed")?;
 
         unsafe { DEVICE.bind_image_memory(image, alloc.memory(), 0) }

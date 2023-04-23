@@ -9,18 +9,17 @@ use super::{commands::CommandBuffer, devices::DEVICE, Buffer};
 #[derive(Debug)]
 pub struct StagingBuffer {
     buff: Buffer,
-    data: *mut u8,
 }
 
 impl StagingBuffer {
     pub fn new(size: usize) -> Result<Self> {
-        let mut buff = Buffer::new(
+        let buff = Buffer::new(
             size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE,
+            true,
         )?;
-        let data = buff.map()?.as_mut_ptr();
-        Ok(Self { buff, data })
+        Ok(Self { buff })
     }
 
     /// Get a mutable slice to the buffer data.
@@ -29,9 +28,14 @@ impl StagingBuffer {
     /// Same as `mem::transmute<[u8], [T]>`.
     #[inline]
     pub unsafe fn data<T>(&mut self) -> &mut [T] {
-        assert_eq!(self.data as usize % align_of::<T>(), 0);
+        let ptr = self
+            .buff
+            .data()
+            .expect("buff has been created with mapped as true")
+            .as_mut_ptr();
+        assert_eq!(ptr as usize % align_of::<T>(), 0);
         let len = self.buff.size() / size_of::<T>();
-        unsafe { slice::from_raw_parts_mut(self.data as *mut _, len) }
+        unsafe { slice::from_raw_parts_mut(ptr as *mut _, len) }
     }
 
     pub fn copy_into(

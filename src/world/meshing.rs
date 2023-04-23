@@ -30,12 +30,15 @@ pub fn start_threads() -> Sender<Message> {
     let (sender, receiver) = crossbeam_channel::unbounded();
     let mut handles = HANDLES.lock().expect("Mutex poisoned");
     handles.reserve(THREADS_COUNT);
-    for _ in 0..THREADS_COUNT {
+    for i in 0..THREADS_COUNT {
         let receiver = receiver.clone();
-        let handle = thread::spawn(|| {
-            #[allow(clippy::unwrap_used)]
-            thread_main(receiver).unwrap()
-        });
+        let handle = thread::Builder::new()
+            .name(format!("Meshing {}", i))
+            .spawn(|| {
+                #[allow(clippy::unwrap_used)]
+                thread_main(receiver).unwrap()
+            })
+            .expect("Thread spawn failed");
         handles.push(handle);
     }
 
@@ -118,6 +121,7 @@ fn thread_main(receiver: Receiver<Message>) -> Result<()> {
                 vertices_size,
                 vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                false,
             )
             .context("Vertex buffer creation failed")?;
 
