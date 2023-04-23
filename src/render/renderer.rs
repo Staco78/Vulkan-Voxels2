@@ -165,7 +165,7 @@ impl Renderer {
                 .extent(self.swapchain.extent);
             let color_clear_value = vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
+                    float32: [0.0, 0.0, 0.0, 0.0],
                 },
             };
             let depth_clear_value = vk::ClearValue {

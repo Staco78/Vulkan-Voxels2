@@ -1,6 +1,7 @@
 use std::{ops::Deref, sync::Mutex};
 
 use anyhow::{anyhow, Context, Result};
+use log::debug;
 use vulkanalia::vk::{
     self, DeviceV1_0, HasBuilder, InstanceV1_0, KhrSurfaceExtension, QueueFamilyProperties,
 };
@@ -171,6 +172,11 @@ impl QueuesManager {
         drop(families);
 
         let queue = unsafe { DEVICE.get_device_queue(i as u32, index) };
+
+        debug!(
+            "fetch queue {:?} (familu: {} idx: {}) graphics: {:?}",
+            queue, i, index, self.graphics
+        );
 
         Ok(Queue {
             inner: queue,

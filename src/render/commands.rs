@@ -89,7 +89,8 @@ pub struct CommandBuffer {
 impl CommandBuffer {
     #[inline]
     pub fn begin(&mut self) -> Result<()> {
-        let info = vk::CommandBufferBeginInfo::builder();
+        let info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe { DEVICE.begin_command_buffer(self.buffer, &info)? };
         Ok(())
     }
