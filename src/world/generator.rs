@@ -60,7 +60,7 @@ fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Resu
                     *block = BlockId::Block;
                 }
             }
-            let mut blocks_lock = chunk.blocks.lock().expect("Mutex poisoned");
+            let mut blocks_lock = chunk.blocks.write().expect("Lock poisoned");
             debug_assert!(blocks_lock.is_none());
             *blocks_lock = Some(blocks);
             drop(blocks_lock);

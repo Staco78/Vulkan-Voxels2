@@ -17,15 +17,16 @@ pub struct Chunks {
 
 impl Chunks {
     pub fn new() -> Arc<RwLock<Self>> {
-        let (generator_sender, receiver) = generator::create_sender();
-        let meshing_sender = meshing::start_threads();
+        let (generator_sender, generator_receiver) = generator::create_sender();
+        let (meshing_sender, meshing_receiver) = meshing::create_sender();
         let chunks = Arc::new(RwLock::new(Self {
             data: HashMap::new(),
             generator_sender,
             meshing_sender,
         }));
 
-        generator::start_threads(receiver, &chunks);
+        generator::start_threads(generator_receiver, &chunks);
+        meshing::start_threads(meshing_receiver, &chunks);
 
         chunks
     }
@@ -42,6 +43,11 @@ impl Chunks {
                 .context("Sender disconnected")?;
         }
         Ok(())
+    }
+
+    #[inline]
+    pub fn get(&self, pos: &ChunkPos) -> Option<&Arc<Chunk>> {
+        self.data.get(pos)
     }
 
     #[inline]

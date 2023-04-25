@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    ops::{Deref, DerefMut},
+    ops::{Add, Deref, DerefMut},
 };
 
 use nalgebra_glm::{TVec2, TVec3, Vec3};
@@ -41,17 +41,18 @@ impl LocalBlockPos {
         (x as usize * CHUNK_SIZE + y as usize) * CHUNK_SIZE + z as usize
     }
 
-    /// # Panic
-    /// Panic if the new coordinate is outside of 0..CHUNK_SIZE.
+    /// Return `None` if the new coordinate is outside of 0..CHUNK_SIZE.
     #[inline(always)]
-    pub fn add(self, x: i8, y: i8, z: i8) -> Self {
-        let nx = self.x.checked_add_signed(x).expect("self.x - x < 0");
-        let ny = self.y.checked_add_signed(y).expect("self.y - y < 0");
-        let nz = self.z.checked_add_signed(z).expect("self.z - z < 0");
-        assert!((nx as usize) < CHUNK_SIZE);
-        assert!((ny as usize) < CHUNK_SIZE);
-        assert!((nz as usize) < CHUNK_SIZE);
-        Self::new(nx, ny, nz)
+    pub fn add(self, x: i8, y: i8, z: i8) -> Option<Self> {
+        let nx = self.x.checked_add_signed(x)?;
+        let ny = self.y.checked_add_signed(y)?;
+        let nz = self.z.checked_add_signed(z)?;
+        if (nx as usize) >= CHUNK_SIZE || (ny as usize) >= CHUNK_SIZE || (nz as usize) >= CHUNK_SIZE
+        {
+            None
+        } else {
+            Some(Self::new(nx, ny, nz))
+        }
     }
 }
 
@@ -99,6 +100,15 @@ impl ChunkPos {
     }
 }
 
+impl Add for ChunkPos {
+    type Output = Self;
+    #[inline(always)]
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            inner: self.inner + rhs.inner,
+        }
+    }
+}
 impl Deref for ChunkPos {
     type Target = TVec3<i64>;
     #[inline(always)]

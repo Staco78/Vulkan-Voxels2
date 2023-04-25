@@ -2,7 +2,7 @@ use std::{
     mem::size_of,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Mutex, RwLock, Weak,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -17,7 +17,7 @@ use crate::{
     utils::try_init_array,
 };
 
-use super::{chunk::Chunk, MAX_VERTICES_PER_CHUNK};
+use super::{chunk::Chunk, chunks::Chunks, MAX_VERTICES_PER_CHUNK};
 
 pub const THREADS_COUNT: usize = 10;
 const IN_FLIGHT_COPIES: usize = 4;
@@ -26,23 +26,25 @@ pub type Message = Weak<Chunk>;
 static EXIT: AtomicBool = AtomicBool::new(false);
 static HANDLES: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
 
-pub fn start_threads() -> Sender<Message> {
-    let (sender, receiver) = crossbeam_channel::unbounded();
+pub fn create_sender() -> (Sender<Message>, Receiver<Message>) {
+    crossbeam_channel::unbounded()
+}
+
+pub fn start_threads(receiver: Receiver<Message>, chunks: &Arc<RwLock<Chunks>>) {
     let mut handles = HANDLES.lock().expect("Mutex poisoned");
     handles.reserve(THREADS_COUNT);
     for i in 0..THREADS_COUNT {
         let receiver = receiver.clone();
+        let chunks = Arc::clone(chunks);
         let handle = thread::Builder::new()
             .name(format!("Meshing {}", i))
             .spawn(|| {
                 #[allow(clippy::unwrap_used)]
-                thread_main(receiver).unwrap()
+                thread_main(receiver, chunks).unwrap()
             })
             .expect("Thread spawn failed");
         handles.push(handle);
     }
-
-    sender
 }
 
 pub fn stop_threads(sender: &Sender<Message>) {
@@ -56,7 +58,7 @@ pub fn stop_threads(sender: &Sender<Message>) {
     }
 }
 
-fn thread_main(receiver: Receiver<Message>) -> Result<()> {
+fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Result<()> {
     let fences: [vk::Fence; IN_FLIGHT_COPIES] = try_init_array(|| create_fence(true))?;
     let mut staging_buffs: [StagingBuffer; IN_FLIGHT_COPIES] =
         try_init_array(|| StagingBuffer::new(MAX_VERTICES_PER_CHUNK * size_of::<Vertex>()))
@@ -115,7 +117,7 @@ fn thread_main(receiver: Receiver<Message>) -> Result<()> {
 
         if let Some(chunk) = mess.upgrade() {
             let vertices = unsafe { staging_buff.data::<Vertex>() };
-            let vertices_count = chunk.mesh(vertices);
+            let vertices_count = chunk.mesh(&chunks, vertices);
             let vertices_size = vertices_count * size_of::<Vertex>();
 
             let mut vertex_buff = Buffer::new(

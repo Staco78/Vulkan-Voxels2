@@ -1,19 +1,19 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 use log::trace;
 use nalgebra_glm::TVec3;
 
 use crate::{
     render::{Buffer, Vertex},
-    world::LocalBlockPos,
+    world::{LocalBlockPos, CHUNK_SIZE},
 };
 
-use super::{blocks::BlockId, pos::ChunkPos, BLOCKS_PER_CHUNK, CHUNK_SIZE};
+use super::{blocks::BlockId, chunks::Chunks, pos::ChunkPos, BLOCKS_PER_CHUNK};
 
 #[derive(Debug)]
 pub struct Chunk {
     pub(super) pos: ChunkPos,
-    pub(super) blocks: Mutex<Option<[BlockId; BLOCKS_PER_CHUNK]>>,
+    pub(super) blocks: RwLock<Option<[BlockId; BLOCKS_PER_CHUNK]>>,
     pub vertex_buffer: Mutex<Option<Buffer>>,
 }
 
@@ -21,13 +21,13 @@ impl Chunk {
     pub fn new(pos: ChunkPos) -> Self {
         Self {
             pos,
-            blocks: Mutex::new(None),
+            blocks: RwLock::new(None),
             vertex_buffer: Mutex::new(None),
         }
     }
 
     /// Return the count of vertices generated.
-    pub fn mesh(&self, buff: &mut [Vertex]) -> usize {
+    pub fn mesh(&self, chunks: &Arc<RwLock<Chunks>>, buff: &mut [Vertex]) -> usize {
         trace!("Mesh chunk {:?}", self.pos);
         const FRONT: [TVec3<u8>; 6] = [
             TVec3::new(0, 0, 0),
@@ -78,52 +78,85 @@ impl Chunk {
             TVec3::new(1, 0, 1),
         ];
 
+        const FACES: [[TVec3<u8>; 6]; 6] = [FRONT, BACK, LEFT, RIGHT, UP, DOWN];
+        const ADDENDS: [(i8, i8, i8); 6] = [
+            (-1, 0, 0),
+            (1, 0, 0),
+            (0, 0, -1),
+            (0, 0, 1),
+            (0, 1, 0),
+            (0, -1, 0),
+        ];
+        const LIGHT_MODIFIERS: [u32; 6] = [1, 1, 2, 2, 3, 0];
+
         let mut i = 0;
 
-        let mut emit_face = |face: &[TVec3<u8>; 6], light_modifier: u32, pos: LocalBlockPos| {
-            for local_pos in face.iter() {
+        let mut emit_face = |pos: LocalBlockPos, face_idx: usize| {
+            for local_pos in FACES[face_idx].iter() {
                 let pos = *pos + local_pos;
                 let data: u32 = pos.x as u32
                     | (pos.y as u32) << 6
                     | (pos.z as u32) << 12
-                    | light_modifier << 18;
+                    | LIGHT_MODIFIERS[face_idx] << 18;
                 let vertex = Vertex { data };
                 buff[i] = vertex;
                 i += 1;
             }
         };
 
-        let blocks = self.blocks.lock().expect("Mutex poisoned");
-        let blocks = blocks.expect("Trying to mesh a non-generated chunk");
+        let mut neighbours: [Option<Arc<Chunk>>; 6] = [None, None, None, None, None, None];
+        let chunks = chunks.read().expect("Lock poisoned");
+        for i in 0..6 {
+            let addend = ADDENDS[i];
+            let addend_pos = ChunkPos::new(addend.0 as _, addend.1 as _, addend.2 as _);
+            let pos = self.pos + addend_pos;
+            let neighbour = chunks.get(&pos);
+            neighbours[i] = neighbour.cloned();
+        }
+        drop(chunks);
 
-        for i in 0..BLOCKS_PER_CHUNK {
+        let blocks = self.blocks.read().expect("Lock poisoned");
+        let blocks = blocks
+            .as_ref()
+            .expect("Trying to mesh a non-generated chunk");
+
+        let block_exists = |block_pos: LocalBlockPos, dir: usize| -> bool {
+            let addend = ADDENDS[dir];
+            let pos = block_pos.add(addend.0, addend.1, addend.2);
+            if let Some(pos) = pos {
+                blocks[pos.to_index()] != BlockId::Air
+            } else {
+                let neighbour = &neighbours[dir];
+                if let Some(chunk) = neighbour {
+                    let blocks = chunk.blocks.read().expect("Lock poisoned");
+                    if let Some(ref blocks) = *blocks {
+                        let block_pos = match dir {
+                            0 => LocalBlockPos::new(CHUNK_SIZE as u8 - 1, block_pos.y, block_pos.z),
+                            1 => LocalBlockPos::new(0, block_pos.y, block_pos.z),
+                            2 => LocalBlockPos::new(block_pos.x, block_pos.y, CHUNK_SIZE as u8 - 1),
+                            3 => LocalBlockPos::new(block_pos.x, block_pos.y, 0),
+                            4 => LocalBlockPos::new(block_pos.x, 0, block_pos.z),
+                            5 => LocalBlockPos::new(block_pos.x, CHUNK_SIZE as u8 - 1, block_pos.z),
+                            _ => unreachable!(),
+                        };
+                        blocks[block_pos.to_index()] != BlockId::Air
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                }
+            }
+        };
+
+        for (i, &block) in blocks.iter().enumerate() {
             let pos = LocalBlockPos::from_index(i);
 
-            let block = blocks[i];
             if block != BlockId::Air {
-                if pos.x as usize >= CHUNK_SIZE - 1
-                    || blocks[pos.add(1, 0, 0).to_index()] == BlockId::Air
-                {
-                    emit_face(&BACK, 1, pos);
-                }
-                if pos.x == 0 || blocks[pos.add(-1, 0, 0).to_index()] == BlockId::Air {
-                    emit_face(&FRONT, 1, pos);
-                }
-                if pos.z as usize >= CHUNK_SIZE - 1
-                    || blocks[pos.add(0, 0, 1).to_index()] == BlockId::Air
-                {
-                    emit_face(&RIGHT, 2, pos);
-                }
-                if pos.z == 0 || blocks[pos.add(0, 0, -1).to_index()] == BlockId::Air {
-                    emit_face(&LEFT, 2, pos);
-                }
-                if pos.y as usize >= CHUNK_SIZE - 1
-                    || blocks[pos.add(0, 1, 0).to_index()] == BlockId::Air
-                {
-                    emit_face(&UP, 3, pos);
-                }
-                if pos.y == 0 || blocks[pos.add(0, -1, 0).to_index()] == BlockId::Air {
-                    emit_face(&DOWN, 0, pos);
+                for dir in 0..6 {
+                    if !block_exists(pos, dir) {
+                        emit_face(pos, dir);
+                    }
                 }
             }
         }
