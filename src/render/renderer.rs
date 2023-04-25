@@ -284,7 +284,8 @@ impl Renderer {
     }
 
     pub fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
-        unsafe { DEVICE.device_wait_idle() }.context("Device wait idle failed")?;
+        unsafe { DEVICE.queue_wait_idle(DEVICE.graphics_queue) }
+            .context("Graphics queue wait idle failed")?;
         self.swapchain
             .recreate(self.physical_device, window, *self.surface)
             .context("New swapchain creation failed")?;
@@ -308,7 +309,8 @@ impl Renderer {
     }
 
     pub fn recreate_pipeline(&mut self) -> Result<()> {
-        unsafe { DEVICE.device_wait_idle() }.context("Device wait idle failed")?;
+        unsafe { DEVICE.queue_wait_idle(DEVICE.graphics_queue) }
+            .context("Graphics queue wait idle failed")?;
         self.pipeline
             .recreate(self.physical_device, &self.swapchain, &self.uniforms)
             .context("Pipeline recreation failed")?;
@@ -327,7 +329,7 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            let _ = DEVICE.device_wait_idle();
+            let _ = DEVICE.queue_wait_idle(DEVICE.graphics_queue);
         }
         // Prevent destructor to destroy null or already destroyed fences.
         self.images_in_flight.clear();
