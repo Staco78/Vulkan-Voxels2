@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use log::trace;
 use nalgebra_glm::TVec3;
 
@@ -10,24 +12,17 @@ use super::{blocks::BlockId, pos::ChunkPos, BLOCKS_PER_CHUNK, CHUNK_SIZE};
 
 #[derive(Debug)]
 pub struct Chunk {
-    pub pos: ChunkPos,
-    blocks: [BlockId; BLOCKS_PER_CHUNK],
-    pub vertex_buffer: Option<Buffer>,
+    pub(super) pos: ChunkPos,
+    pub(super) blocks: Mutex<Option<[BlockId; BLOCKS_PER_CHUNK]>>,
+    pub vertex_buffer: Mutex<Option<Buffer>>,
 }
 
 impl Chunk {
-    pub fn generate(pos: ChunkPos) -> Self {
-        trace!("Generate chunk {:?}", pos);
-        let mut blocks = [BlockId::Air; BLOCKS_PER_CHUNK];
-        for (i, block) in blocks.iter_mut().enumerate() {
-            if i % 4 == 0 {
-                *block = BlockId::Block;
-            }
-        }
+    pub fn new(pos: ChunkPos) -> Self {
         Self {
             pos,
-            blocks,
-            vertex_buffer: None,
+            blocks: Mutex::new(None),
+            vertex_buffer: Mutex::new(None),
         }
     }
 
@@ -98,32 +93,36 @@ impl Chunk {
             }
         };
 
+        let blocks = self.blocks.lock().expect("Mutex poisoned");
+        let blocks = blocks.expect("Trying to mesh a non-generated chunk");
+
         for i in 0..BLOCKS_PER_CHUNK {
             let pos = LocalBlockPos::from_index(i);
-            let block = self.blocks[i];
+
+            let block = blocks[i];
             if block != BlockId::Air {
                 if pos.x as usize >= CHUNK_SIZE - 1
-                    || self.blocks[pos.add(1, 0, 0).to_index()] == BlockId::Air
+                    || blocks[pos.add(1, 0, 0).to_index()] == BlockId::Air
                 {
                     emit_face(&BACK, 1, pos);
                 }
-                if pos.x == 0 || self.blocks[pos.add(-1, 0, 0).to_index()] == BlockId::Air {
+                if pos.x == 0 || blocks[pos.add(-1, 0, 0).to_index()] == BlockId::Air {
                     emit_face(&FRONT, 1, pos);
                 }
                 if pos.z as usize >= CHUNK_SIZE - 1
-                    || self.blocks[pos.add(0, 0, 1).to_index()] == BlockId::Air
+                    || blocks[pos.add(0, 0, 1).to_index()] == BlockId::Air
                 {
                     emit_face(&RIGHT, 2, pos);
                 }
-                if pos.z == 0 || self.blocks[pos.add(0, 0, -1).to_index()] == BlockId::Air {
+                if pos.z == 0 || blocks[pos.add(0, 0, -1).to_index()] == BlockId::Air {
                     emit_face(&LEFT, 2, pos);
                 }
                 if pos.y as usize >= CHUNK_SIZE - 1
-                    || self.blocks[pos.add(0, 1, 0).to_index()] == BlockId::Air
+                    || blocks[pos.add(0, 1, 0).to_index()] == BlockId::Air
                 {
                     emit_face(&UP, 3, pos);
                 }
-                if pos.y == 0 || self.blocks[pos.add(0, -1, 0).to_index()] == BlockId::Air {
+                if pos.y == 0 || blocks[pos.add(0, -1, 0).to_index()] == BlockId::Air {
                     emit_face(&DOWN, 0, pos);
                 }
             }

@@ -21,7 +21,7 @@ use super::{chunk::Chunk, MAX_VERTICES_PER_CHUNK};
 
 pub const THREADS_COUNT: usize = 10;
 const IN_FLIGHT_COPIES: usize = 4;
-pub type Message = Weak<Mutex<Chunk>>;
+pub type Message = Weak<Chunk>;
 
 static EXIT: AtomicBool = AtomicBool::new(false);
 static HANDLES: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
@@ -66,8 +66,8 @@ fn thread_main(receiver: Receiver<Message>) -> Result<()> {
     let mut command_buffs = command_pool
         .alloc_buffers(IN_FLIGHT_COPIES)
         .context("Command buffers alloc failed")?;
-    const NONE_INIT: Option<(Arc<Mutex<Chunk>>, Buffer)> = None;
-    let mut in_copy_chunks: [Option<(Arc<Mutex<Chunk>>, Buffer)>; IN_FLIGHT_COPIES] =
+    const NONE_INIT: Option<(Arc<Chunk>, Buffer)> = None;
+    let mut in_copy_chunks: [Option<(Arc<Chunk>, Buffer)>; IN_FLIGHT_COPIES] =
         [NONE_INIT; IN_FLIGHT_COPIES];
 
     let mut buff_idx = 0;
@@ -99,10 +99,13 @@ fn thread_main(receiver: Receiver<Message>) -> Result<()> {
 
             buff_idx = signaled_fence;
             if let Some((finished_copy_chunk, vertex_buffer)) = in_copy_chunks[buff_idx].take() {
-                let mut chunk_lock = finished_copy_chunk.lock().expect("Mutex poisoned");
-                chunk_lock.vertex_buffer = Some(vertex_buffer);
+                *finished_copy_chunk
+                    .vertex_buffer
+                    .lock()
+                    .expect("Mutex poisoned") = Some(vertex_buffer);
                 current_copies_count -= 1;
             }
+
             (
                 fences[buff_idx],
                 &mut staging_buffs[buff_idx],
@@ -112,9 +115,7 @@ fn thread_main(receiver: Receiver<Message>) -> Result<()> {
 
         if let Some(chunk) = mess.upgrade() {
             let vertices = unsafe { staging_buff.data::<Vertex>() };
-            let chunk_lock = chunk.lock().expect("Mutex poisoned");
-            let vertices_count = chunk_lock.mesh(vertices);
-            drop(chunk_lock);
+            let vertices_count = chunk.mesh(vertices);
             let vertices_size = vertices_count * size_of::<Vertex>();
 
             let mut vertex_buff = Buffer::new(

@@ -198,14 +198,14 @@ impl Renderer {
             }
 
             for (pos, chunk) in world.chunks().iter() {
-                let r = chunk.try_lock();
-                let chunk = match r {
-                    Ok(chunk) => chunk,
+                let r = chunk.vertex_buffer.try_lock();
+                let lock = match r {
+                    Ok(lock) => lock,
                     Err(TryLockError::WouldBlock) => continue,
                     Err(TryLockError::Poisoned(_)) => panic!("Mutex poisoned"),
                 };
-                let vertex_buffer = match &chunk.vertex_buffer {
-                    Some(buff) => buff,
+                let vertex_buffer = match *lock {
+                    Some(ref buff) => buff,
                     None => continue,
                 };
                 unsafe {

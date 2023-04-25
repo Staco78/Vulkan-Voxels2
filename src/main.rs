@@ -21,6 +21,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(let_chains)]
+#![feature(map_try_insert)]
 
 mod app;
 mod debug;

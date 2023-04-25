@@ -1,20 +1,20 @@
 mod blocks;
 pub mod chunk;
+mod chunks;
+mod generator;
 pub mod meshing;
 mod pos;
 
 pub use pos::*;
 
-use anyhow::{Context, Result};
-use crossbeam_channel::Sender;
+use anyhow::Result;
 
 use std::{
-    collections::HashMap,
     ops::Deref,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
-use self::chunk::Chunk;
+use self::chunks::Chunks;
 
 pub const CHUNK_SIZE: usize = 32;
 pub const BLOCKS_PER_CHUNK: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -23,17 +23,13 @@ pub const RENDER_DISTANCE: usize = 5;
 
 #[derive(Debug)]
 pub struct World {
-    chunks: RwLock<HashMap<ChunkPos, Arc<Mutex<Chunk>>>>,
-    meshing_sender: Sender<meshing::Message>,
+    chunks: Arc<RwLock<Chunks>>,
 }
 
 impl World {
     pub fn new() -> Result<World> {
-        let meshing_sender = meshing::start_threads();
-
         Ok(Self {
-            chunks: RwLock::new(HashMap::new()),
-            meshing_sender,
+            chunks: Chunks::new(),
         })
     }
 
@@ -48,14 +44,7 @@ impl World {
                         continue;
                     }
                     let chunk_pos = ChunkPos::new(x, y, z);
-                    if chunks.contains_key(&chunk_pos) {
-                        continue;
-                    }
-                    let chunk = Arc::new(Mutex::new(Chunk::generate(chunk_pos)));
-                    self.meshing_sender
-                        .send(Arc::downgrade(&chunk))
-                        .context("Sender disconnected")?;
-                    chunks.insert(chunk_pos, chunk);
+                    chunks.load(chunk_pos)?;
                 }
             }
         }
@@ -64,13 +53,7 @@ impl World {
     }
 
     #[inline(always)]
-    pub fn chunks(&self) -> impl Deref<Target = HashMap<ChunkPos, Arc<Mutex<Chunk>>>> + '_ {
+    pub fn chunks(&self) -> impl Deref<Target = Chunks> + '_ {
         self.chunks.read().expect("Lock poisoned")
-    }
-}
-
-impl Drop for World {
-    fn drop(&mut self) {
-        meshing::stop_threads(&self.meshing_sender);
     }
 }
