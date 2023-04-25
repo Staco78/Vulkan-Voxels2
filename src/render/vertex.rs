@@ -3,7 +3,7 @@ use std::mem::size_of;
 use memoffset::offset_of;
 use vulkanalia::vk::{self, HasBuilder};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Vertex {
     pub data: u32,

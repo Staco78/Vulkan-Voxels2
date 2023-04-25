@@ -22,6 +22,9 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(let_chains)]
 #![feature(map_try_insert)]
+#![feature(test)]
+
+extern crate test;
 
 mod app;
 mod debug;
