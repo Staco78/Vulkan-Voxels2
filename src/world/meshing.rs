@@ -118,6 +118,9 @@ fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Resu
         if let Some(chunk) = mess.upgrade() {
             let vertices = unsafe { staging_buff.data::<Vertex>() };
             let vertices_count = chunk.mesh(&chunks, vertices);
+            if vertices_count == 0 {
+                continue;
+            }
             let vertices_size = vertices_count * size_of::<Vertex>();
 
             let mut vertex_buff = Buffer::new(

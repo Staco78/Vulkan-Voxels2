@@ -14,3 +14,11 @@ nalgebra-glm = "0.18.0"
 simplelog = "0.12.1"
 vulkanalia = { version = "0.18.0", features = ["libloading", "window"] }
 winit = "0.28.3"
+
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 3
+strip = true
+codegen-units = 1

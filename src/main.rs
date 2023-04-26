@@ -17,11 +17,9 @@
 #![feature(maybe_uninit_write_slice)]
 #![feature(maybe_uninit_slice)]
 #![feature(adt_const_params)]
-#![feature(lazy_cell)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(let_chains)]
-#![feature(map_try_insert)]
 #![feature(test)]
 
 extern crate test;

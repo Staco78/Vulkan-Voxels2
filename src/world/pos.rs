@@ -5,7 +5,7 @@ use std::{
 
 use nalgebra_glm::{TVec2, TVec3, Vec3};
 
-use crate::world::{BLOCKS_PER_CHUNK, CHUNK_SIZE};
+use crate::world::CHUNK_SIZE;
 
 /// The position of a block in a chunk.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
@@ -25,12 +25,15 @@ impl LocalBlockPos {
     }
 
     #[inline(always)]
-    pub fn from_index(index: usize) -> Self {
-        debug_assert!(index < BLOCKS_PER_CHUNK);
-        let x = index / (CHUNK_SIZE * CHUNK_SIZE);
-        let y = (index % (CHUNK_SIZE * CHUNK_SIZE)) / CHUNK_SIZE;
-        let z = index % CHUNK_SIZE;
-        Self::new(x as u8, y as u8, z as u8)
+    pub fn try_new(x: i8, y: i8, z: i8) -> Option<Self> {
+        if x >= CHUNK_SIZE as _ || y >= CHUNK_SIZE as _ || z >= CHUNK_SIZE as _ {
+            return None;
+        }
+        Some(Self::new(
+            x.try_into().ok()?,
+            y.try_into().ok()?,
+            z.try_into().ok()?,
+        ))
     }
 
     #[inline(always)]
@@ -39,20 +42,6 @@ impl LocalBlockPos {
             unreachable!()
         };
         (x as usize * CHUNK_SIZE + y as usize) * CHUNK_SIZE + z as usize
-    }
-
-    /// Return `None` if the new coordinate is outside of 0..CHUNK_SIZE.
-    #[inline(always)]
-    pub fn add(self, x: i8, y: i8, z: i8) -> Option<Self> {
-        let nx = self.x.checked_add_signed(x)?;
-        let ny = self.y.checked_add_signed(y)?;
-        let nz = self.z.checked_add_signed(z)?;
-        if (nx as usize) >= CHUNK_SIZE || (ny as usize) >= CHUNK_SIZE || (nz as usize) >= CHUNK_SIZE
-        {
-            None
-        } else {
-            Some(Self::new(nx, ny, nz))
-        }
     }
 }
 

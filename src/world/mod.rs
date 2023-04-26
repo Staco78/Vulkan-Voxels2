@@ -1,5 +1,6 @@
 mod blocks;
 pub mod chunk;
+mod chunk_mesh;
 mod chunks;
 mod generator;
 pub mod meshing;
