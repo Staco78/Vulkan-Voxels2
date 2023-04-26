@@ -40,7 +40,7 @@ impl Buffer {
     pub fn data(&mut self) -> Result<&mut [u8]> {
         self.alloc
             .data()
-            .ok_or(anyhow!("Buffer has not been created with mapped as true"))
+            .ok_or_else(|| anyhow!("Buffer has not been created with mapped as true"))
     }
 
     #[inline(always)]

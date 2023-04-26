@@ -19,7 +19,7 @@ impl AppOptions {
     }
 
     #[inline]
-    pub fn get() -> impl Deref<Target = AppOptions> {
+    pub fn get() -> impl Deref<Target = Self> {
         OPTIONS.read().expect("Lock poisoned")
     }
 }

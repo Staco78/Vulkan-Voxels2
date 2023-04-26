@@ -41,12 +41,7 @@ impl Camera {
         let yaw = self.pos.yaw() + mouse_delta.0 as f32 * SENSITIVITY;
         let mut pitch = self.pos.pitch() - mouse_delta.1 as f32 * SENSITIVITY;
 
-        if pitch > 89.0 {
-            pitch = 89.0;
-        }
-        if pitch < -89.0 {
-            pitch = -89.0;
-        }
+        pitch = pitch.clamp(-89.0, 89.0);
 
         let dir = Vec3::new(yaw.to_radians().cos(), 0., yaw.to_radians().sin()).normalize();
         let right = dir.cross(&Vec3::y()).normalize();

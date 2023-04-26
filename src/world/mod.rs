@@ -28,7 +28,7 @@ pub struct World {
 }
 
 impl World {
-    pub fn new() -> Result<World> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
             chunks: Chunks::new(),
         })
