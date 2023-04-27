@@ -87,6 +87,11 @@ impl ChunkPos {
         };
         (x, y, z)
     }
+
+    #[inline(always)]
+    pub fn flat(&self) -> FlatChunkPos {
+        FlatChunkPos::new(self.x, self.z)
+    }
 }
 
 impl Add for ChunkPos {
@@ -195,5 +200,28 @@ impl Debug for EntityPos {
             self.pitch(),
             self.yaw()
         )
+    }
+}
+
+// The 2D position of a chunk.
+#[derive(Debug)]
+pub struct FlatChunkPos {
+    inner: TVec2<i64>,
+}
+
+impl FlatChunkPos {
+    #[inline(always)]
+    pub fn new(x: i64, z: i64) -> Self {
+        Self {
+            inner: TVec2::new(x, z),
+        }
+    }
+    #[inline(always)]
+    pub fn x(&self) -> i64 {
+        self.inner.x
+    }
+    #[inline(always)]
+    pub fn z(&self) -> i64 {
+        self.inner.y
     }
 }

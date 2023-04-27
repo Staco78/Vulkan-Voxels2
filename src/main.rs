@@ -21,6 +21,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(let_chains)]
 #![feature(test)]
+#![feature(hash_drain_filter)]
 
 extern crate test;
 

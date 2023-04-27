@@ -31,7 +31,7 @@ use super::{
     vertex::Vertex,
 };
 
-const MAX_FRAMES_IN_FLIGHT: usize = 2;
+pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive(Debug)]
 pub struct Renderer {

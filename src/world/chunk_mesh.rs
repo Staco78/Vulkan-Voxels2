@@ -17,6 +17,7 @@ pub const ADDENDS: [(i8, i8, i8); 6] = [
 ];
 pub const LIGHT_MODIFIERS: [u32; 6] = [1, 1, 3, 0, 2, 2];
 
+#[inline]
 fn block_exist(
     blocks: &[BlockId; BLOCKS_PER_CHUNK],
     neighbours: &[Option<Arc<Chunk>>; 6],
@@ -120,6 +121,7 @@ fn append_quad(buff: &mut [Vertex], buff_idx: &mut usize, points: [(i8, i8, i8);
     *buff_idx += 6;
 }
 
+#[inline]
 pub fn mesh(
     blocks: &[BlockId; BLOCKS_PER_CHUNK],
     neighbours: &[Option<Arc<Chunk>>; 6],

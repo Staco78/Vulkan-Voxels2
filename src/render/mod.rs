@@ -23,7 +23,7 @@ pub use buffer::Buffer;
 pub use commands::{CommandBuffer, CommandPool};
 pub use devices::DEVICE;
 pub use queues::{Queue, QueueInfo, QUEUES};
-pub use renderer::Renderer;
+pub use renderer::{Renderer, MAX_FRAMES_IN_FLIGHT};
 pub use staging::StagingBuffer;
 pub use sync::*;
 pub use vertex::Vertex;

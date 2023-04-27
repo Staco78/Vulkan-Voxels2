@@ -285,11 +285,7 @@ struct Block {
 impl Block {
     #[inline(always)]
     fn aligned_size(&self, alignment: usize) -> usize {
-        self.size
-            - match self.offset % alignment {
-                0 => 0,
-                r => alignment - r,
-            }
+        self.size.saturating_sub(self.offset % alignment)
     }
 }
 
