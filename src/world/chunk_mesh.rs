@@ -72,7 +72,7 @@ fn block_exist(
         if let Some(chunk) = neighbour {
             let blocks = chunk.blocks.read().expect("Lock poisoned");
             if let Some(ref blocks) = *blocks {
-                blocks[pos.to_index()] != BlockId::Air
+                blocks.data[pos.to_index()] != BlockId::Air
             } else {
                 false
             }

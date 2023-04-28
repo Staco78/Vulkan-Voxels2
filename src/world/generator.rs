@@ -9,15 +9,18 @@ use std::{
 
 use anyhow::{Context, Result};
 use crossbeam_channel::{Receiver, Sender};
+use mini_moka::sync::Cache;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
-use crate::world::LocalBlockPos;
+use crate::world::{chunk::ChunkBlocks, LocalBlockPos};
 
 use super::{
-    blocks::BlockId, chunk::Chunk, chunks::Chunks, FlatChunkPos, BLOCKS_PER_CHUNK, CHUNK_SIZE,
+    blocks::BlockId, chunk::Chunk, chunks::Chunks, ChunkPos, FlatChunkPos, BLOCKS_PER_CHUNK,
+    CHUNK_SIZE,
 };
 
 pub const THREADS_COUNT: usize = 2;
+const MAX_HEIGHT_MAPS_CACHE: usize = 4096;
 
 pub type Message = Weak<Chunk>;
 
@@ -31,14 +34,18 @@ pub fn create_sender() -> (Sender<Message>, Receiver<Message>) {
 pub fn start_threads(seed: u32, receiver: Receiver<Message>, chunks: &Arc<RwLock<Chunks>>) {
     let mut handles = HANDLES.lock().expect("Mutex poisoned");
     handles.reserve(THREADS_COUNT);
+
+    let cache = Cache::new(MAX_HEIGHT_MAPS_CACHE as u64);
+
     for i in 0..THREADS_COUNT {
         let receiver = receiver.clone();
         let chunks = Arc::clone(chunks);
+        let cache = cache.clone();
         let handle = thread::Builder::new()
             .name(format!("Generator {}", i))
             .spawn(move || {
                 #[allow(clippy::unwrap_used)]
-                thread_main(seed, receiver, chunks).unwrap()
+                thread_main(seed, receiver, chunks, cache).unwrap()
             })
             .expect("Thread spawn failed");
         handles.push(handle);
@@ -56,35 +63,28 @@ pub fn stop_threads(sender: &Sender<Message>) {
     }
 }
 
-fn thread_main(seed: u32, receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Result<()> {
-    let generator = Generator::new(seed);
+fn thread_main(
+    seed: u32,
+    receiver: Receiver<Message>,
+    chunks: Arc<RwLock<Chunks>>,
+    height_maps_cache: Cache<FlatChunkPos, HeightMap>,
+) -> Result<()> {
+    let generator = Generator::new(seed, height_maps_cache);
 
     while !EXIT.load(Ordering::Relaxed) {
         let chunk = receiver.recv().context("Channel disconnected")?;
         if let Some(chunk) = chunk.upgrade() {
-            let mut blocks = [BlockId::Air; BLOCKS_PER_CHUNK];
-            let map = generator.create_height_map(chunk.pos.flat());
-
-            let chunk_floor = chunk.pos.y * CHUNK_SIZE as i64;
-
-            for x in 0..CHUNK_SIZE {
-                for z in 0..CHUNK_SIZE {
-                    let mut y = 0;
-                    while y < CHUNK_SIZE as _
-                        && (chunk_floor + y as i64) < map[x * CHUNK_SIZE + z] as i64
-                    {
-                        let pos = LocalBlockPos::new(x as u8, y, z as u8);
-                        blocks[pos.to_index()] = BlockId::Block;
-                        y += 1;
-                    }
-                }
-            }
-
+            let mut blocks = MaybeUninit::uninit_array();
+            let solid_blocks_count = generator.generate(&chunk.pos, &mut blocks);
+            // Safety: generator has written all the blocks
+            let blocks = unsafe { MaybeUninit::array_assume_init(blocks) };
             let mut blocks_lock = chunk.blocks.write().expect("Lock poisoned");
             debug_assert!(blocks_lock.is_none());
-            *blocks_lock = Some(blocks);
+            *blocks_lock = Some(ChunkBlocks {
+                data: blocks,
+                solid_blocks_count,
+            });
             drop(blocks_lock);
-
             chunks
                 .read()
                 .expect("Lock poisoned")
@@ -95,18 +95,61 @@ fn thread_main(seed: u32, receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks
     Ok(())
 }
 
+type HeightMap = [u32; CHUNK_SIZE * CHUNK_SIZE];
+
 #[derive(Debug)]
 struct Generator {
     noise: Fbm<Perlin>,
+    height_maps_cache: Cache<FlatChunkPos, HeightMap>,
 }
 
 impl Generator {
-    fn new(seed: u32) -> Self {
+    fn new(seed: u32, height_maps_cache: Cache<FlatChunkPos, HeightMap>) -> Self {
         Self {
             noise: Fbm::new(seed).set_frequency(0.001),
+            height_maps_cache,
         }
     }
-    fn create_height_map(&self, pos: FlatChunkPos) -> [u32; CHUNK_SIZE * CHUNK_SIZE] {
+
+    /// Return the solid blocks count.
+    fn generate(
+        &self,
+        pos: &ChunkPos,
+        blocks: &mut [MaybeUninit<BlockId>; BLOCKS_PER_CHUNK],
+    ) -> u32 {
+        let map = self.get_height_map(&pos.flat());
+
+        let chunk_floor = pos.y * CHUNK_SIZE as i64;
+
+        let mut solid_blocks = 0;
+
+        for x in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                for y in 0..CHUNK_SIZE {
+                    let block = if (chunk_floor + y as i64) < map[x * CHUNK_SIZE + z] as i64 {
+                        solid_blocks += 1;
+                        BlockId::Block
+                    } else {
+                        BlockId::Air
+                    };
+                    let pos = LocalBlockPos::new(x as u8, y as u8, z as u8);
+                    blocks[pos.to_index()].write(block);
+                }
+            }
+        }
+
+        solid_blocks
+    }
+
+    fn get_height_map(&self, pos: &FlatChunkPos) -> HeightMap {
+        self.height_maps_cache.get(pos).unwrap_or_else(|| {
+            let map = self.create_height_map(pos);
+            self.height_maps_cache.insert(*pos, map);
+            map
+        })
+    }
+
+    fn create_height_map(&self, pos: &FlatChunkPos) -> HeightMap {
         let mut map: [MaybeUninit<u32>; CHUNK_SIZE * CHUNK_SIZE] = MaybeUninit::uninit_array();
         let off = (
             (pos.x() * CHUNK_SIZE as i64) as f64,
@@ -123,5 +166,36 @@ impl Generator {
         }
         // Safety: we wrote each value
         unsafe { MaybeUninit::array_assume_init(map) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{mem::MaybeUninit, time::SystemTime};
+
+    use test::Bencher;
+
+    use super::*;
+
+    #[bench]
+    fn generate(b: &mut Bencher) {
+        let mut blocks = MaybeUninit::uninit_array();
+        let cache = Cache::new(MAX_HEIGHT_MAPS_CACHE as u64);
+        let generator = Generator::new(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_secs() as u32,
+            cache,
+        );
+        let mut x = (generator.noise.get([0., 0.]) * 100.) as i64;
+        let mut y = (generator.noise.get([-12., 35.]) * 100.) as i64;
+        let mut z = (generator.noise.get([81., -90.]) * 100.) as i64;
+        b.iter(|| {
+            generator.generate(&ChunkPos::new(x, y, z), &mut blocks);
+            x += 1;
+            y += 1;
+            z += 1;
+        })
     }
 }

@@ -204,7 +204,7 @@ impl Debug for EntityPos {
 }
 
 // The 2D position of a chunk.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FlatChunkPos {
     inner: TVec2<i64>,
 }

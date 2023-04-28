@@ -12,8 +12,14 @@ use super::{blocks::BlockId, chunks::Chunks, pos::ChunkPos, BLOCKS_PER_CHUNK};
 #[derive(Debug)]
 pub struct Chunk {
     pub(super) pos: ChunkPos,
-    pub(super) blocks: RwLock<Option<[BlockId; BLOCKS_PER_CHUNK]>>,
+    pub(super) blocks: RwLock<Option<ChunkBlocks>>,
     pub vertex_buffer: Mutex<Option<Buffer>>,
+}
+
+#[derive(Debug)]
+pub struct ChunkBlocks {
+    pub data: [BlockId; BLOCKS_PER_CHUNK],
+    pub solid_blocks_count: u32,
 }
 
 impl Chunk {
@@ -45,6 +51,10 @@ impl Chunk {
             .as_ref()
             .expect("Trying to mesh a non-generated chunk");
 
-        mesh(blocks, &neighbours, buff)
+        if blocks.solid_blocks_count == 0 {
+            return 0;
+        }
+
+        mesh(&blocks.data, &neighbours, buff)
     }
 }
