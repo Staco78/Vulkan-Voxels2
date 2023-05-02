@@ -15,6 +15,7 @@ use crate::{
 use super::{
     config::{DEVICE_REQUIRED_EXTENSIONS, VALIDATION_ENABLED},
     queues::{get_queue_families, QueuesManager, QUEUES},
+    Queue,
 };
 
 pub fn pick_physical(surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
@@ -138,7 +139,8 @@ pub static DEVICE: DerefOnceLock<Device, "Device not initialized"> = DerefOnceLo
 #[derive(Debug)]
 pub struct Device {
     pub device: vulkanalia::Device,
-    pub graphics_queue: vk::Queue,
+    pub graphics_queue: Queue,
+    pub properties: vk::PhysicalDeviceProperties,
 }
 
 impl Deref for Device {
@@ -168,6 +170,8 @@ impl Device {
     fn new(physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR) -> Result<Self> {
         let (_priorities, queue_create_infos) = QueuesManager::init(physical_device, surface)?;
 
+        let properties = unsafe { INSTANCE.get_physical_device_properties(physical_device) };
+
         let extensions = DEVICE_REQUIRED_EXTENSIONS
             .iter()
             .map(|ext| ext.name.as_ptr())
@@ -181,7 +185,8 @@ impl Device {
 
         let features = vk::PhysicalDeviceFeatures::builder()
             .shader_int64(true)
-            .fill_mode_non_solid(true);
+            .fill_mode_non_solid(true)
+            .sampler_anisotropy(true);
         let create_info = DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_layer_names(layers)
@@ -195,9 +200,12 @@ impl Device {
             device.get_device_queue(graphics_queue_info.family, graphics_queue_info.index)
         };
 
+        let graphics_queue = Queue::new(graphics_queue, graphics_queue_info);
+
         Ok(Self {
             device,
             graphics_queue,
+            properties,
         })
     }
 }

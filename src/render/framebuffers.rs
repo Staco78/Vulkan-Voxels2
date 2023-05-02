@@ -5,7 +5,7 @@ use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
 
 use crate::utils::drop_then_new;
 
-use super::{depth::DepthBuffer, devices::DEVICE, pipeline::Pipeline, swapchain::Swapchain};
+use super::{depth::DepthBuffer, devices::DEVICE, render_pass::RenderPass, swapchain::Swapchain};
 
 #[derive(Debug)]
 pub struct Framebuffers {
@@ -15,7 +15,7 @@ pub struct Framebuffers {
 impl Framebuffers {
     pub fn new(
         swapchain: &Swapchain,
-        pipeline: &Pipeline,
+        render_pass: &RenderPass,
         depth_buffer: &DepthBuffer,
     ) -> Result<Self> {
         let framebuffers = swapchain
@@ -24,7 +24,7 @@ impl Framebuffers {
             .map(|i| {
                 let attachments = &[*i, depth_buffer.view()];
                 let create_info = vk::FramebufferCreateInfo::builder()
-                    .render_pass(pipeline.render_pass)
+                    .render_pass(**render_pass)
                     .attachments(attachments)
                     .width(swapchain.extent.width)
                     .height(swapchain.extent.height)
@@ -47,10 +47,10 @@ impl Framebuffers {
     pub fn recreate(
         &mut self,
         swapchain: &Swapchain,
-        pipeline: &Pipeline,
+        render_pass: &RenderPass,
         depth_buffer: &DepthBuffer,
     ) -> Result<()> {
-        drop_then_new(self, || Self::new(swapchain, pipeline, depth_buffer))
+        drop_then_new(self, || Self::new(swapchain, render_pass, depth_buffer))
     }
 }
 

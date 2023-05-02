@@ -17,14 +17,20 @@ impl Buffer {
         usage: vk::BufferUsageFlags,
         alloc_properties: vk::MemoryPropertyFlags,
         mapped: bool,
+        alignment: usize,
     ) -> Result<Self> {
+        debug_assert!(alignment.is_power_of_two());
         let info = vk::BufferCreateInfo::builder()
             .size(size as u64)
             .usage(usage);
         let buffer =
             unsafe { DEVICE.create_buffer(&info, None) }.context("Buffer creation failed")?;
 
-        let requirements = unsafe { DEVICE.get_buffer_memory_requirements(buffer) };
+        let mut requirements = unsafe { DEVICE.get_buffer_memory_requirements(buffer) };
+        if mapped && requirements.alignment < DEVICE.properties.limits.non_coherent_atom_size {
+            requirements.alignment = DEVICE.properties.limits.non_coherent_atom_size;
+        }
+        requirements.alignment = requirements.alignment.max(alignment as _);
 
         let alloc = allocator()
             .alloc(alloc_properties, requirements, mapped)

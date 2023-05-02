@@ -3,7 +3,7 @@ use std::ops::Deref;
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, CommandPoolCreateInfo, CommandPoolResetFlags, DeviceV1_0, HasBuilder};
 
-use super::devices::DEVICE;
+use super::{create_fence, devices::DEVICE, Queue};
 
 #[derive(Debug)]
 pub struct CommandPool {
@@ -14,7 +14,10 @@ impl CommandPool {
     pub fn new(queue_family: u32) -> Result<Self> {
         let info = CommandPoolCreateInfo::builder()
             .queue_family_index(queue_family)
-            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+            .flags(
+                vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER
+                    | vk::CommandPoolCreateFlags::TRANSIENT,
+            );
         let pool = unsafe { DEVICE.create_command_pool(&info, None) }
             .context("Command pool creation failed")?;
 
@@ -91,13 +94,21 @@ impl CommandBuffer {
     pub fn begin(&mut self) -> Result<()> {
         let info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        unsafe { DEVICE.begin_command_buffer(self.buffer, &info)? };
+        unsafe {
+            DEVICE
+                .begin_command_buffer(self.buffer, &info)
+                .context("Command buffer begining failed")?
+        };
         Ok(())
     }
 
     #[inline]
     pub fn end(&mut self) -> Result<()> {
-        unsafe { DEVICE.end_command_buffer(self.buffer)? };
+        unsafe {
+            DEVICE
+                .end_command_buffer(self.buffer)
+                .context("Command buffer ending failed")?
+        };
         Ok(())
     }
 
@@ -110,6 +121,29 @@ impl CommandBuffer {
     pub fn reset(&mut self) -> Result<()> {
         unsafe { DEVICE.reset_command_buffer(self.buffer, vk::CommandBufferResetFlags::empty()) }
             .context("Command buffer reset failed")
+    }
+
+    pub fn run_one_time_commands<C>(&mut self, queue: &Queue, closure: C) -> Result<()>
+    where
+        C: FnOnce(vk::CommandBuffer),
+    {
+        self.begin()?;
+        closure(self.buffer);
+        self.end()?;
+
+        let buffers = &[self.buffer];
+        let submit_info = vk::SubmitInfo::builder().command_buffers(buffers);
+        let fence = create_fence(false).context("Fence creation failed")?;
+        unsafe {
+            DEVICE
+                .queue_submit(**queue, &[submit_info], fence)
+                .context("Queue submit failed")?;
+            DEVICE
+                .wait_for_fences(&[fence], false, u64::MAX)
+                .context("Failed waiting for fence")?;
+        };
+
+        Ok(())
     }
 }
 

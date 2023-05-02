@@ -7,11 +7,11 @@ use std::{
     },
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use log::trace;
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder, InstanceV1_0};
 
-use crate::render::{devices::DEVICE, instance::INSTANCE};
+use crate::render::{devices::DEVICE, instance::INSTANCE, memory::get_memory_type_index};
 
 use super::allocator;
 
@@ -51,7 +51,7 @@ impl Allocator {
         requirements: vk::MemoryRequirements,
         mapped: bool,
     ) -> Result<Allocation> {
-        trace!(target: "allocator", "Alloc {}B of {:?} memory", requirements.size, properties);
+        trace!(target: "allocator", "Alloc {}B of {:?} memory (alignment: {})", requirements.size, properties, requirements.alignment);
         let memory_type_index =
             get_memory_type_index(self.device_memory_properties, properties, requirements)?;
         let pool = &self.pools[memory_type_index as usize];
@@ -285,7 +285,9 @@ struct Block {
 impl Block {
     #[inline(always)]
     fn aligned_size(&self, alignment: usize) -> usize {
-        self.size.saturating_sub(self.offset % alignment)
+        let end = self.offset + self.size;
+        let aligned_start = self.offset.next_multiple_of(alignment);
+        end.saturating_sub(aligned_start)
     }
 }
 
@@ -327,6 +329,9 @@ impl Allocation {
 
     #[inline]
     pub fn flush(&self) -> Result<()> {
+        if self.ptr.is_null() {
+            bail!("A non-mapped allocation couldn't be flushed");
+        }
         let memory_ranges = &[vk::MappedMemoryRange::builder()
             .memory(self.memory)
             .offset(self.offset as u64)
@@ -346,16 +351,23 @@ impl Drop for Allocation {
     }
 }
 
-fn get_memory_type_index(
-    memory: vk::PhysicalDeviceMemoryProperties,
-    properties: vk::MemoryPropertyFlags,
-    requirements: vk::MemoryRequirements,
-) -> Result<u32> {
-    (0..memory.memory_type_count)
-        .find(|i| {
-            let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
-            let memory_type = memory.memory_types[*i as usize];
-            suitable && memory_type.property_flags.contains(properties)
-        })
-        .ok_or_else(|| anyhow!("Failed to find suitable memory type."))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_aligned_size() {
+        // (size, offset, alignment, result)
+        const VALUES: &[(usize, usize, usize, usize)] =
+            &[(1000, 0, 12, 1000), (1000, 10, 10, 1000), (100, 1, 4, 97)];
+
+        for &(size, offset, alignment, result) in VALUES {
+            let block = Block {
+                size,
+                offset,
+                is_free: true,
+            };
+            assert_eq!(block.aligned_size(alignment), result);
+        }
+    }
 }

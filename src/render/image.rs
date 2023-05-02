@@ -1,9 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
 
 use crate::render::memory::allocator;
 
-use super::{devices::DEVICE, memory::Allocation};
+use super::{devices::DEVICE, memory::Allocation, Buffer, CommandBuffer, Queue};
 
 pub fn create_image_view(
     image: vk::Image,
@@ -44,11 +44,12 @@ pub struct Image {
     image: vk::Image,
     _alloc: Allocation,
     pub view: vk::ImageView,
+    size: vk::Extent3D,
 }
 
 impl Image {
     pub fn new(
-        size: vk::Extent2D,
+        size: vk::Extent3D,
         format: vk::Format,
         tiling: vk::ImageTiling,
         usage: vk::ImageUsageFlags,
@@ -56,11 +57,7 @@ impl Image {
     ) -> Result<Self> {
         let info = vk::ImageCreateInfo::builder()
             .image_type(vk::ImageType::_2D)
-            .extent(vk::Extent3D {
-                width: size.width,
-                height: size.height,
-                depth: 1,
-            })
+            .extent(size)
             .mip_levels(1)
             .array_layers(1)
             .format(format)
@@ -77,7 +74,7 @@ impl Image {
             .alloc(vk::MemoryPropertyFlags::DEVICE_LOCAL, requirements, false)
             .context("Alloc failed")?;
 
-        unsafe { DEVICE.bind_image_memory(image, alloc.memory(), 0) }
+        unsafe { DEVICE.bind_image_memory(image, alloc.memory(), alloc.offset() as u64) }
             .context("Image memory binding failed")?;
 
         let view = create_image_view(image, format, aspects, 1)?;
@@ -86,7 +83,93 @@ impl Image {
             image,
             _alloc: alloc,
             view,
+            size,
         })
+    }
+
+    pub fn layout_transition(
+        &mut self,
+        queue: &Queue,
+        command_buff: &mut CommandBuffer,
+        old_layout: vk::ImageLayout,
+        new_layout: vk::ImageLayout,
+    ) -> Result<()> {
+        let (src_access_mask, dst_access_mask, src_stage_mask, dst_stage_mask) =
+            match (old_layout, new_layout) {
+                (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL) => (
+                    vk::AccessFlags::empty(),
+                    vk::AccessFlags::TRANSFER_WRITE,
+                    vk::PipelineStageFlags::TOP_OF_PIPE,
+                    vk::PipelineStageFlags::TRANSFER,
+                ),
+                (
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                ) => (
+                    vk::AccessFlags::TRANSFER_WRITE,
+                    vk::AccessFlags::SHADER_READ,
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                ),
+                _ => bail!("Unsupported image layout transition!"),
+            };
+
+        let subresource = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1);
+
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(self.image)
+            .subresource_range(subresource)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask);
+
+        command_buff.run_one_time_commands(queue, |buff| unsafe {
+            DEVICE.cmd_pipeline_barrier(
+                buff,
+                src_stage_mask,
+                dst_stage_mask,
+                vk::DependencyFlags::empty(),
+                &[] as &[vk::MemoryBarrier],
+                &[] as &[vk::BufferMemoryBarrier],
+                &[barrier],
+            );
+        })?;
+
+        Ok(())
+    }
+
+    pub fn copy_from_buff(&mut self, command_buff: vk::CommandBuffer, buffer: &Buffer) {
+        let subresource = vk::ImageSubresourceLayers::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(1);
+
+        let region = vk::BufferImageCopy::builder()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(subresource)
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(self.size);
+
+        unsafe {
+            DEVICE.cmd_copy_buffer_to_image(
+                command_buff,
+                buffer.buffer,
+                self.image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+            );
+        }
     }
 }
 

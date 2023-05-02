@@ -1,5 +1,8 @@
 use core::slice;
-use std::mem::{align_of, size_of};
+use std::{
+    mem::{align_of, size_of},
+    ops::{Deref, DerefMut},
+};
 
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
@@ -12,12 +15,13 @@ pub struct StagingBuffer {
 }
 
 impl StagingBuffer {
-    pub fn new(size: usize) -> Result<Self> {
+    pub fn new(size: usize, alignment: usize) -> Result<Self> {
         let buff = Buffer::new(
             size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE,
             true,
+            alignment,
         )?;
         Ok(Self { buff })
     }
@@ -47,13 +51,13 @@ impl StagingBuffer {
         size: usize,
     ) -> Result<()> {
         self.buff.flush().context("Buffer flush failed")?;
-        command_buff.begin().context("Command buff begin failed")?;
+        command_buff.begin()?;
         let region = vk::BufferCopy::builder()
             .size(size as u64)
             .src_offset(0)
             .dst_offset(0);
         unsafe { DEVICE.cmd_copy_buffer(**command_buff, self.buff.buffer, dst.buffer, &[region]) };
-        command_buff.end().context("Command buff end failed")?;
+        command_buff.end()?;
 
         let buffers = &[**command_buff];
         let submit_info = vk::SubmitInfo::builder().command_buffers(buffers);
@@ -61,5 +65,17 @@ impl StagingBuffer {
             .context("Queue submitting failed")?;
 
         Ok(())
+    }
+}
+
+impl Deref for StagingBuffer {
+    type Target = Buffer;
+    fn deref(&self) -> &Self::Target {
+        &self.buff
+    }
+}
+impl DerefMut for StagingBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buff
     }
 }

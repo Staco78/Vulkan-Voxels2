@@ -8,7 +8,9 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.70"
 crossbeam-channel = "0.5.8"
-log = "0.4.17"
+egui = "0.21.0"
+egui-winit = "0.21.1"
+log = { version = "0.4.17" }
 memoffset = "0.8.0"
 mini-moka = "0.10.0"
 nalgebra-glm = "0.18.0"
@@ -17,6 +19,10 @@ simplelog = "0.12.1"
 vulkanalia = { version = "0.18.0", features = ["libloading", "window"] }
 winit = "0.28.3"
 
+[features]
+# for debug purpose
+dumb_allocator = []
+
 
 [profile.release]
 panic = "abort"
@@ -24,3 +30,6 @@ lto = true
 opt-level = 3
 strip = true
 codegen-units = 1
+
+[dev-dependencies]
+ctor = "0.2.0"

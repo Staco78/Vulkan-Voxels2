@@ -1,5 +1,5 @@
 use std::{
-    mem::size_of,
+    mem::{align_of, size_of},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock, Weak,
@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use log::warn;
 use vulkanalia::vk::{self, DeviceV1_0, SuccessCode};
 
 use crate::{
@@ -54,15 +55,22 @@ pub fn stop_threads(sender: &Sender<Message>) {
         let _ = sender.send(Weak::new());
     }
     for handle in handles.drain(..) {
-        let _ = handle.join();
+        let r = handle.join();
+        if let Err(e) = r {
+            warn!("Failed to join chunk: {:?}", e);
+        }
     }
 }
 
 fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Result<()> {
     let fences: [vk::Fence; IN_FLIGHT_COPIES] = try_init_array(|| create_fence(true))?;
-    let mut staging_buffs: [StagingBuffer; IN_FLIGHT_COPIES] =
-        try_init_array(|| StagingBuffer::new(MAX_VERTICES_PER_CHUNK * size_of::<Vertex>()))
-            .context("Staging buffer creation failed")?;
+    let mut staging_buffs: [StagingBuffer; IN_FLIGHT_COPIES] = try_init_array(|| {
+        StagingBuffer::new(
+            MAX_VERTICES_PER_CHUNK * size_of::<Vertex>(),
+            align_of::<Vertex>(),
+        )
+    })
+    .context("Staging buffer creation failed")?;
     let queue = QUEUES.fetch_queue(vk::QueueFlags::TRANSFER)?;
     let command_pool = CommandPool::new(queue.family)?;
     let mut command_buffs = command_pool
@@ -128,6 +136,7 @@ fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Resu
                 vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 false,
+                align_of::<Vertex>(),
             )
             .context("Vertex buffer creation failed")?;
 

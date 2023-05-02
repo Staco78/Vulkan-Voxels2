@@ -22,12 +22,17 @@
 #![feature(let_chains)]
 #![feature(test)]
 #![feature(hash_drain_filter)]
+#![feature(return_position_impl_trait_in_trait)]
+#![feature(unsize)]
+#![feature(int_roundings)]
+#![feature(pointer_byte_offsets)]
 
 extern crate test;
 
 mod app;
 mod debug;
 mod events;
+mod gui;
 mod inputs;
 mod options;
 mod render;
@@ -38,7 +43,7 @@ use anyhow::{Context, Result};
 use app::App;
 use log::LevelFilter;
 use render::Window;
-use simplelog::{ColorChoice, ConfigBuilder, TermLogger, TerminalMode};
+use simplelog::{ColorChoice, ConfigBuilder, TermLogger, TerminalMode, ThreadLogMode};
 
 fn main() -> Result<()> {
     init_logger()?;
@@ -58,6 +63,9 @@ fn main() -> Result<()> {
 fn init_logger() -> Result<()> {
     let config = ConfigBuilder::new()
         .set_time_level(LevelFilter::Off)
+        .set_thread_mode(ThreadLogMode::Both)
+        .add_filter_ignore_str("meshing")
+        .add_filter_ignore_str("allocator")
         .build();
     TermLogger::init(
         LevelFilter::Trace,
@@ -66,4 +74,13 @@ fn init_logger() -> Result<()> {
         ColorChoice::Auto,
     )
     .context("Failed to initialize logger")
+}
+
+/// Run init code for the tests.
+#[cfg(test)]
+#[ctor::ctor]
+fn init() {
+    let (window, event_loop) = Window::new().expect("Window creation failed");
+    window.set_visible(false);
+    let _app = App::new(window, &event_loop).expect("App creation failed");
 }

@@ -27,6 +27,17 @@ pub struct Queue {
     pub index: u32,
 }
 
+impl Queue {
+    #[inline]
+    pub fn new(inner: vk::Queue, info: QueueInfo) -> Self {
+        Self {
+            inner,
+            family: info.family,
+            index: info.index,
+        }
+    }
+}
+
 impl Deref for Queue {
     type Target = vk::Queue;
     fn deref(&self) -> &Self::Target {

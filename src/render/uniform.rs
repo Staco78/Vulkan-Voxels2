@@ -1,114 +1,98 @@
 use std::{
-    mem::size_of,
+    mem::{align_of, size_of},
     ops::{Index, IndexMut},
-    ptr,
+    ptr, slice,
 };
 
 use anyhow::{Context, Result};
-use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
+use vulkanalia::vk::{self, HasBuilder};
 
-use super::{buffer::Buffer, devices::DEVICE};
+use super::{
+    buffer::Buffer,
+    descriptors::{DescriptorPool, DescriptorSet, DescriptorSetLayout},
+    devices::DEVICE,
+};
 
 #[derive(Debug)]
 pub struct Uniforms<T> {
+    _pool: DescriptorPool,
+    pub layout: DescriptorSetLayout,
     uniforms: Vec<Uniform<T>>,
     _buff: Buffer,
-    pub descriptor_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
 }
 
 impl<T> Uniforms<T> {
     pub fn new(count: usize) -> Result<Self> {
+        let entry_size = size_of::<T>()
+            .max(DEVICE.properties.limits.min_uniform_buffer_offset_alignment as usize);
+        let entry_align = align_of::<T>()
+            .max(DEVICE.properties.limits.min_uniform_buffer_offset_alignment as usize);
         let mut buff = Buffer::new(
-            count * size_of::<T>(),
+            entry_size * count,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE,
             true,
+            entry_align,
         )
         .context("Buffer creation failed")?;
-        let ptr = buff.data()?.as_mut_ptr() as *mut T;
 
-        let descriptor_layout = {
-            let binding = vk::DescriptorSetLayoutBinding::builder()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX);
-            let bindings = &[binding];
-            let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
-            unsafe { DEVICE.create_descriptor_set_layout(&info, None) }
-                .context("Descriptor set layout creation failed")?
-        };
+        let mut pool = DescriptorPool::new(count, vk::DescriptorType::UNIFORM_BUFFER)
+            .context("Descriptor pool creation failed")?;
 
-        let descriptor_pool = {
-            let ubo_size = vk::DescriptorPoolSize::builder()
-                .type_(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(count as u32);
+        let layout = DescriptorSetLayout::new(&Self::binding(0))
+            .context("Descriptor set layout creation failed")?;
 
-            let pool_sizes = &[ubo_size];
-            let info = vk::DescriptorPoolCreateInfo::builder()
-                .pool_sizes(pool_sizes)
-                .max_sets(count as u32);
+        let sets = pool
+            .alloc_sets(count, &layout)
+            .context("Descriptor sets allocation failed")?;
 
-            unsafe { DEVICE.create_descriptor_pool(&info, None) }
-                .context("Descriptor pool creation failed")?
-        };
-
-        let descriptor_sets = {
-            let layouts = vec![descriptor_layout; count];
-            let info = vk::DescriptorSetAllocateInfo::builder()
-                .descriptor_pool(descriptor_pool)
-                .set_layouts(&layouts);
-
-            let sets = unsafe { DEVICE.allocate_descriptor_sets(&info) }
-                .context("Descriptor sets alloc failed")?;
-
-            for (i, &set) in sets.iter().enumerate() {
-                let info = vk::DescriptorBufferInfo::builder()
+        let ptr = buff.data().expect("Buffer should be mapped").as_ptr() as usize;
+        let mut off = 0;
+        let uniforms = sets
+            .into_iter()
+            .map(|mut set| {
+                let buff_info = vk::DescriptorBufferInfo::builder()
                     .buffer(buff.buffer)
-                    .offset((i * size_of::<T>()) as u64)
-                    .range(size_of::<T>() as u64);
+                    .offset(off as u64)
+                    .range(size_of::<T>() as u64)
+                    .build();
 
-                let buffer_info = &[info];
-                let ubo_write = vk::WriteDescriptorSet::builder()
-                    .dst_set(set)
+                let write = vk::WriteDescriptorSet::builder()
+                    .dst_set(*set)
                     .dst_binding(0)
                     .dst_array_element(0)
                     .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                    .buffer_info(buffer_info);
+                    .buffer_info(slice::from_ref(&buff_info));
+                set.update(&[write]);
 
-                unsafe {
-                    DEVICE.update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet])
-                };
-            }
-
-            sets
-        };
-        let uniforms = descriptor_sets
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(i, descriptor_set)| Uniform {
-                ptr: unsafe { ptr.add(i) },
-                descriptor_set,
+                let ptr = (ptr + off) as *mut T;
+                off += entry_size;
+                Uniform {
+                    descriptor_set: set,
+                    ptr,
+                }
             })
             .collect();
 
         Ok(Self {
+            _pool: pool,
+            layout,
             uniforms,
             _buff: buff,
-            descriptor_layout,
-            descriptor_pool,
         })
     }
-}
 
-impl<T> Drop for Uniforms<T> {
-    fn drop(&mut self) {
-        unsafe {
-            DEVICE.destroy_descriptor_set_layout(self.descriptor_layout, None);
-            DEVICE.destroy_descriptor_pool(self.descriptor_pool, None);
-        };
+    pub fn binding(binding: u32) -> vk::DescriptorSetLayoutBindingBuilder<'static> {
+        vk::DescriptorSetLayoutBinding::builder()
+            .binding(binding)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.uniforms.len()
     }
 }
 
@@ -124,9 +108,25 @@ impl<T> IndexMut<usize> for Uniforms<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a Uniforms<T> {
+    type Item = &'a Uniform<T>;
+    type IntoIter = slice::Iter<'a, Uniform<T>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.uniforms.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut Uniforms<T> {
+    type Item = &'a mut Uniform<T>;
+    type IntoIter = slice::IterMut<'a, Uniform<T>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.uniforms.iter_mut()
+    }
+}
+
 #[derive(Debug)]
 pub struct Uniform<T> {
-    pub descriptor_set: vk::DescriptorSet,
+    pub descriptor_set: DescriptorSet,
     ptr: *mut T,
 }
 

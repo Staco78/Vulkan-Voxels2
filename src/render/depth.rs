@@ -13,7 +13,11 @@ pub struct DepthBuffer {
 impl DepthBuffer {
     pub fn new(physical_device: vk::PhysicalDevice, swapchain: &Swapchain) -> Result<Self> {
         let image = Image::new(
-            swapchain.extent,
+            vk::Extent3D {
+                width: swapchain.extent.width,
+                height: swapchain.extent.height,
+                depth: 1,
+            },
             Self::get_format(physical_device).context("No supported format found")?,
             vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,

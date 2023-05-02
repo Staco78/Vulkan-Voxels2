@@ -33,7 +33,7 @@ impl Chunk {
 
     /// Return the count of vertices generated.
     pub fn mesh(&self, chunks: &Arc<RwLock<Chunks>>, buff: &mut [Vertex]) -> usize {
-        trace!("Mesh chunk {:?}", self.pos);
+        trace!(target: "meshing", "Mesh chunk {:?}", self.pos);
 
         let mut neighbours: [Option<Arc<Chunk>>; 6] = [None, None, None, None, None, None];
         let chunks = chunks.read().expect("Lock poisoned");

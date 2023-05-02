@@ -1,7 +1,6 @@
 use std::{fmt::Debug, mem::size_of, sync::TryLockError, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use log::debug;
 use vulkanalia::{
     loader::{LibloadingLoader, LIBRARY},
     vk::{self, DeviceV1_0, Handle, HasBuilder, KhrSwapchainExtension},
@@ -11,20 +10,25 @@ use winit::window::Window;
 
 use crate::{
     inputs::Inputs,
+    options::AppOptions,
     render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms},
-    world::{EntityPos, World},
+    shader_module,
+    world::{ChunkPos, EntityPos, World},
 };
 
 use super::{
     camera::Camera,
     commands::{CommandBuffer, CommandPool},
     depth::DepthBuffer,
+    descriptors::DescriptorSetLayout,
     devices::{self, DEVICE},
     framebuffers::Framebuffers,
+    gui_renderer::GuiRenderer,
     instance::Instance,
     memory::init_allocator,
-    pipeline::Pipeline,
+    pipeline::{Pipeline, PipelineCreationOptions},
     queues::QUEUES,
+    render_pass::{RenderPass, RenderPassCreationOptions},
     surface::Surface,
     swapchain::Swapchain,
     sync::{Fences, Semaphores},
@@ -35,6 +39,8 @@ pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive(Debug)]
 pub struct Renderer {
+    gui_renderer: GuiRenderer,
+
     images_in_flight: Fences,
     in_flight_fences: Fences,
     render_finished_semaphores: Semaphores,
@@ -44,6 +50,7 @@ pub struct Renderer {
     framebuffers: Framebuffers,
     depth_buffer: DepthBuffer,
     pipeline: Pipeline,
+    render_pass: RenderPass,
     uniforms: Uniforms<UniformBufferObject>,
     swapchain: Swapchain,
     physical_device: vk::PhysicalDevice,
@@ -69,15 +76,23 @@ impl Renderer {
             .context("Swapchain creation failed")?;
         let uniforms = Uniforms::<UniformBufferObject>::new(swapchain.images.len())
             .context("Uniforms creation failed")?;
-        let pipeline = Pipeline::new(physical_device, &swapchain, &uniforms)
+        let render_pass_options =
+            RenderPassCreationOptions::default(&swapchain).with_depth(physical_device)?;
+        let render_pass =
+            RenderPass::new(&render_pass_options).context("Render pass creation failed")?;
+        let pipeline_options = Self::create_pipeline_options(&uniforms.layout)
+            .context("Pipeline options creation failed")?;
+        let pipeline = Pipeline::new::<Vertex>(&swapchain, &render_pass, &pipeline_options)
             .context("Pipeline creation failed")?;
         let depth_buffer = DepthBuffer::new(physical_device, &swapchain)
             .context("Depth buffer creation failed")?;
-        let framebuffers = Framebuffers::new(&swapchain, &pipeline, &depth_buffer)?;
+        let framebuffers = Framebuffers::new(&swapchain, &render_pass, &depth_buffer)?;
         let command_pool = CommandPool::new(QUEUES.get_default_graphics().family)?;
         let command_buffers = command_pool
             .alloc_buffers(framebuffers.count())
             .context("Command buffers allocation failed")?;
+        let gui_renderer = GuiRenderer::new(&swapchain, &render_pass, &command_pool)
+            .context("Gui renderer creation failed")?;
         let render_finished_semaphores = Semaphores::new(MAX_FRAMES_IN_FLIGHT)?;
         let image_available_semaphores = Semaphores::new(MAX_FRAMES_IN_FLIGHT)?;
         let in_flight_fences = Fences::new(MAX_FRAMES_IN_FLIGHT, true)?;
@@ -91,6 +106,7 @@ impl Renderer {
             physical_device,
             swapchain,
             uniforms,
+            render_pass,
             pipeline,
             depth_buffer,
             framebuffers,
@@ -101,8 +117,36 @@ impl Renderer {
             in_flight_fences,
             images_in_flight,
 
+            gui_renderer,
+
             frame: 0,
             camera,
+        })
+    }
+
+    fn create_pipeline_options(layout: &DescriptorSetLayout) -> Result<PipelineCreationOptions> {
+        let push_constant_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .offset(0)
+            .size(size_of::<ChunkPos>() as u32)
+            .build();
+        Ok(PipelineCreationOptions {
+            shaders: vec![
+                (shader_module!("shader.vert")?, vk::ShaderStageFlags::VERTEX),
+                (
+                    shader_module!("shader.frag")?,
+                    vk::ShaderStageFlags::FRAGMENT,
+                ),
+            ],
+            cull_mode: vk::CullModeFlags::BACK,
+            polygon_mode: AppOptions::get().polygon_mode,
+            descriptors_layouts: vec![layout],
+            push_constant_ranges: vec![push_constant_range],
+            blend_attachment: vk::PipelineColorBlendAttachmentState::builder()
+                .blend_enable(false)
+                .color_write_mask(vk::ColorComponentFlags::all())
+                .build(),
+            dynamic_state: Default::default(),
         })
     }
 
@@ -112,13 +156,10 @@ impl Renderer {
         window: &Window,
         inputs: &Inputs,
         world: &World,
+        gui_primitives: &[egui::ClippedPrimitive],
+        gui_textures_delta: egui::TexturesDelta,
     ) -> Result<()> {
         self.camera.tick(inputs, elapsed);
-
-        if self.frame % 400 == 0 {
-            let fps = 1.0 / elapsed.as_secs_f64();
-            debug!("FPS: {}", fps);
-        }
 
         unsafe { DEVICE.wait_for_fences(&[self.in_flight_fences[self.frame]], true, u64::MAX) }
             .context("Fence waiting failed")?;
@@ -157,9 +198,7 @@ impl Renderer {
         let command_buff = &mut self.command_buffers[image_index as usize];
         {
             command_buff.reset()?;
-            command_buff
-                .begin()
-                .context("Command buffer begining failed")?;
+            command_buff.begin()?;
             let render_area = vk::Rect2D::builder()
                 .offset(vk::Offset2D::default())
                 .extent(self.swapchain.extent);
@@ -176,7 +215,7 @@ impl Renderer {
             };
             let clear_values = &[color_clear_value, depth_clear_value];
             let info = vk::RenderPassBeginInfo::builder()
-                .render_pass(self.pipeline.render_pass)
+                .render_pass(*self.render_pass)
                 .framebuffer(self.framebuffers[image_index as usize])
                 .render_area(render_area)
                 .clear_values(clear_values);
@@ -192,7 +231,7 @@ impl Renderer {
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline.layout,
                     0,
-                    &[self.uniforms[image_index as usize].descriptor_set],
+                    &[*self.uniforms[image_index as usize].descriptor_set],
                     &[],
                 );
             }
@@ -226,11 +265,21 @@ impl Renderer {
                     DEVICE.cmd_draw(**command_buff, vertices_count as u32, 1, 0, 0);
                 }
             }
+
+            self.gui_renderer
+                .render(
+                    image_index as usize,
+                    **command_buff,
+                    gui_primitives,
+                    gui_textures_delta,
+                )
+                .context("Gui rendering failed")?;
+
             unsafe {
                 DEVICE.cmd_end_render_pass(**command_buff);
             };
 
-            command_buff.end().context("Command buffer ending failed")?;
+            command_buff.end()?;
         }
 
         self.images_in_flight[image_index as usize] = self.in_flight_fences[self.frame];
@@ -254,7 +303,7 @@ impl Renderer {
 
             DEVICE
                 .queue_submit(
-                    DEVICE.graphics_queue,
+                    *DEVICE.graphics_queue,
                     &[submit_info],
                     self.in_flight_fences[self.frame],
                 )
@@ -268,7 +317,7 @@ impl Renderer {
             .swapchains(swapchains)
             .image_indices(image_indices);
 
-        let result = unsafe { DEVICE.queue_present_khr(DEVICE.graphics_queue, &present_info) };
+        let result = unsafe { DEVICE.queue_present_khr(*DEVICE.graphics_queue, &present_info) };
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
 
@@ -284,7 +333,7 @@ impl Renderer {
     }
 
     pub fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
-        unsafe { DEVICE.queue_wait_idle(DEVICE.graphics_queue) }
+        unsafe { DEVICE.queue_wait_idle(*DEVICE.graphics_queue) }
             .context("Graphics queue wait idle failed")?;
         self.swapchain
             .recreate(self.physical_device, window, *self.surface)
@@ -292,11 +341,18 @@ impl Renderer {
         self.depth_buffer
             .recreate(self.physical_device, &self.swapchain)
             .context("Depth buffer recreation failed")?;
+        let render_pass_options =
+            RenderPassCreationOptions::default(&self.swapchain).with_depth(self.physical_device)?;
+        self.render_pass
+            .recreate(&render_pass_options)
+            .context("Render pass recreation failed")?;
+        let pipeline_options = Self::create_pipeline_options(&self.uniforms.layout)
+            .context("Pipeline options creation failed")?;
         self.pipeline
-            .recreate(self.physical_device, &self.swapchain, &self.uniforms)
+            .recreate::<Vertex>(&self.swapchain, &self.render_pass, &pipeline_options)
             .context("Pipeline recreation failed")?;
         self.framebuffers
-            .recreate(&self.swapchain, &self.pipeline, &self.depth_buffer)
+            .recreate(&self.swapchain, &self.render_pass, &self.depth_buffer)
             .context("Framebuffers recreation failed")?;
         self.command_pool
             .realloc_buffers(&mut self.command_buffers, self.framebuffers.count())
@@ -304,19 +360,29 @@ impl Renderer {
         self.images_in_flight
             .resize(self.swapchain.images.len(), vk::Fence::null());
         self.camera.rebuild_proj(self.swapchain.extent);
-
+        self.gui_renderer
+            .recreate(&self.swapchain, &self.render_pass)?;
         Ok(())
     }
 
     pub fn recreate_pipeline(&mut self) -> Result<()> {
-        unsafe { DEVICE.queue_wait_idle(DEVICE.graphics_queue) }
+        unsafe { DEVICE.queue_wait_idle(*DEVICE.graphics_queue) }
             .context("Graphics queue wait idle failed")?;
+        let render_pass_options =
+            RenderPassCreationOptions::default(&self.swapchain).with_depth(self.physical_device)?;
+        self.render_pass
+            .recreate(&render_pass_options)
+            .context("Render pass recreation failed")?;
+        let pipeline_options = Self::create_pipeline_options(&self.uniforms.layout)
+            .context("Pipeline options creation failed")?;
         self.pipeline
-            .recreate(self.physical_device, &self.swapchain, &self.uniforms)
+            .recreate::<Vertex>(&self.swapchain, &self.render_pass, &pipeline_options)
             .context("Pipeline recreation failed")?;
         self.framebuffers
-            .recreate(&self.swapchain, &self.pipeline, &self.depth_buffer)
+            .recreate(&self.swapchain, &self.render_pass, &self.depth_buffer)
             .context("Framebuffers recreation failed")?;
+        self.gui_renderer
+            .recreate(&self.swapchain, &self.render_pass)?;
         Ok(())
     }
 
@@ -329,7 +395,7 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            let _ = DEVICE.queue_wait_idle(DEVICE.graphics_queue);
+            let _ = DEVICE.queue_wait_idle(*DEVICE.graphics_queue);
         }
         // Prevent destructor to destroy null or already destroyed fences.
         self.images_in_flight.clear();
