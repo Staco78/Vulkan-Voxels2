@@ -12,7 +12,7 @@ const SENSITIVITY: f32 = 0.05;
 const SPEED: f32 = 100.;
 const FOV: f32 = 60.;
 const NEAR: f32 = 0.1;
-const FAR: f32 = 1000.;
+const FAR: f32 = 100000.;
 
 #[derive(Debug)]
 #[repr(C)]

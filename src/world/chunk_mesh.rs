@@ -2,7 +2,7 @@ use std::{mem, sync::Arc};
 
 use crate::{
     render::Vertex,
-    world::{LocalBlockPos, CHUNK_SIZE},
+    world::{LocalBlockPos, CHUNK_SIZE, MAX_VERTICES_PER_CHUNK},
 };
 
 use super::{blocks::BlockId, chunk::Chunk, BLOCKS_PER_CHUNK};
@@ -17,7 +17,7 @@ pub const ADDENDS: [(i8, i8, i8); 6] = [
 ];
 pub const LIGHT_MODIFIERS: [u32; 6] = [1, 1, 3, 0, 2, 2];
 
-#[inline]
+#[inline(always)]
 fn block_exist(
     blocks: &[BlockId; BLOCKS_PER_CHUNK],
     neighbours: &[Option<Arc<Chunk>>; 6],
@@ -82,13 +82,13 @@ fn block_exist(
     }
 }
 
-#[inline]
+#[inline(always)]
 fn build_vert(pos: (u8, u8, u8), light_modifier: u32) -> Vertex {
     let data = pos.0 as u32 | (pos.1 as u32) << 6 | (pos.2 as u32) << 12 | light_modifier << 18;
     Vertex { data }
 }
 
-#[inline]
+#[inline(always)]
 fn append_quad(buff: &mut [Vertex], buff_idx: &mut usize, points: [(i8, i8, i8); 4], dir: usize) {
     debug_assert!(points.iter().all(|&p| p >= (0, 0, 0)));
     let points: [(u8, u8, u8); 4] = unsafe { mem::transmute(points) };
@@ -127,6 +127,8 @@ pub fn mesh(
     neighbours: &[Option<Arc<Chunk>>; 6],
     buff: &mut [Vertex],
 ) -> usize {
+    // here to gain ~5us/iter
+    assert!(buff.len() == MAX_VERTICES_PER_CHUNK);
     let mut buff_idx = 0;
     for d in 0..3 {
         let u = (d + 1) % 3;

@@ -20,7 +20,7 @@ use self::chunks::Chunks;
 pub const CHUNK_SIZE: usize = 32;
 pub const BLOCKS_PER_CHUNK: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 pub const MAX_VERTICES_PER_CHUNK: usize = BLOCKS_PER_CHUNK * 18;
-pub const RENDER_DISTANCE: usize = 10;
+pub const RENDER_DISTANCE: usize = 16;
 pub const DISCARD_DISTANCE: usize = RENDER_DISTANCE + 2;
 
 #[derive(Debug)]
