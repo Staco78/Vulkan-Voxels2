@@ -1,13 +1,16 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    sync::{Arc, RwLock},
+    sync::{atomic::Ordering, Arc, RwLock},
     time::SystemTime,
 };
 
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
 
-use crate::render::{Buffer, MAX_FRAMES_IN_FLIGHT};
+use crate::{
+    gui,
+    render::{Buffer, MAX_FRAMES_IN_FLIGHT},
+};
 
 use super::{chunk::Chunk, generator, meshing, ChunkPos};
 
@@ -48,6 +51,11 @@ impl Chunks {
     pub fn load(&mut self, pos: ChunkPos) -> Result<()> {
         if let Entry::Vacant(entry) = self.data.entry(pos) {
             let chunk = Chunk::new(pos);
+            gui::DATA
+                .read()
+                .expect("Lock poisoned")
+                .created_chunks
+                .fetch_add(1, Ordering::Relaxed);
             let arc = Arc::new(chunk);
             let weak = Arc::downgrade(&arc);
             entry.insert(arc);

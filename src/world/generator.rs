@@ -12,7 +12,7 @@ use crossbeam_channel::{Receiver, Sender};
 use mini_moka::sync::Cache;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
-use crate::world::{chunk::ChunkBlocks, LocalBlockPos};
+use crate::{gui, world::LocalBlockPos};
 
 use super::{
     blocks::BlockId, chunk::Chunk, chunks::Chunks, ChunkPos, FlatChunkPos, BLOCKS_PER_CHUNK,
@@ -74,21 +74,22 @@ fn thread_main(
     while !EXIT.load(Ordering::Relaxed) {
         let chunk = receiver.recv().context("Channel disconnected")?;
         if let Some(chunk) = chunk.upgrade() {
-            let mut blocks = MaybeUninit::uninit_array();
-            let solid_blocks_count = generator.generate(&chunk.pos, &mut blocks);
-            // Safety: generator has written all the blocks
-            let blocks = unsafe { MaybeUninit::array_assume_init(blocks) };
             let mut blocks_lock = chunk.blocks.write().expect("Lock poisoned");
-            debug_assert!(blocks_lock.is_none());
-            *blocks_lock = Some(ChunkBlocks {
-                data: blocks,
-                solid_blocks_count,
-            });
+            let solid_blocks_count = generator.generate(&chunk.pos, &mut blocks_lock.data);
+            blocks_lock.solid_blocks_count = solid_blocks_count;
             drop(blocks_lock);
+            if solid_blocks_count == 0 {
+                continue;
+            }
             chunks
                 .read()
                 .expect("Lock poisoned")
                 .chunk_generated(&chunk);
+            gui::DATA
+                .read()
+                .expect("Lock poisoned")
+                .generated_chunks
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -112,11 +113,7 @@ impl Generator {
     }
 
     /// Return the solid blocks count.
-    fn generate(
-        &self,
-        pos: &ChunkPos,
-        blocks: &mut [MaybeUninit<BlockId>; BLOCKS_PER_CHUNK],
-    ) -> u32 {
+    fn generate(&self, pos: &ChunkPos, blocks: &mut [BlockId; BLOCKS_PER_CHUNK]) -> u32 {
         let map = self.get_height_map(&pos.flat());
 
         let chunk_floor = pos.y * CHUNK_SIZE as i64;
@@ -125,15 +122,13 @@ impl Generator {
 
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
-                for y in 0..CHUNK_SIZE {
-                    let block = if (chunk_floor + y as i64) < map[x * CHUNK_SIZE + z] as i64 {
-                        solid_blocks += 1;
-                        BlockId::Block
-                    } else {
-                        BlockId::Air
-                    };
+                let mut y = 0;
+                while y < CHUNK_SIZE && (chunk_floor + y as i64) < map[x * CHUNK_SIZE + z] as i64 {
                     let pos = LocalBlockPos::new(x as u8, y as u8, z as u8);
-                    blocks[pos.to_index()].write(block);
+                    blocks[pos.to_index()] = BlockId::Block;
+
+                    solid_blocks += 1;
+                    y += 1;
                 }
             }
         }
@@ -171,7 +166,7 @@ impl Generator {
 
 #[cfg(test)]
 mod tests {
-    use std::{mem::MaybeUninit, time::SystemTime};
+    use std::time::SystemTime;
 
     use test::Bencher;
 
@@ -179,7 +174,7 @@ mod tests {
 
     #[bench]
     fn generate(b: &mut Bencher) {
-        let mut blocks = MaybeUninit::uninit_array();
+        let mut blocks = [BlockId::Air; BLOCKS_PER_CHUNK];
         let cache = Cache::new(MAX_HEIGHT_MAPS_CACHE as u64);
         let generator = Generator::new(
             SystemTime::now()

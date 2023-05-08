@@ -12,7 +12,7 @@ use super::{blocks::BlockId, chunks::Chunks, pos::ChunkPos, BLOCKS_PER_CHUNK};
 #[derive(Debug)]
 pub struct Chunk {
     pub(super) pos: ChunkPos,
-    pub(super) blocks: RwLock<Option<ChunkBlocks>>,
+    pub(super) blocks: RwLock<ChunkBlocks>,
     pub vertex_buffer: Mutex<Option<Buffer>>,
 }
 
@@ -22,11 +22,20 @@ pub struct ChunkBlocks {
     pub solid_blocks_count: u32,
 }
 
+impl Default for ChunkBlocks {
+    fn default() -> Self {
+        Self {
+            data: [BlockId::Air; BLOCKS_PER_CHUNK],
+            solid_blocks_count: 0,
+        }
+    }
+}
+
 impl Chunk {
     pub fn new(pos: ChunkPos) -> Self {
         Self {
             pos,
-            blocks: RwLock::new(None),
+            blocks: RwLock::new(Default::default()),
             vertex_buffer: Mutex::new(None),
         }
     }
@@ -47,9 +56,6 @@ impl Chunk {
         drop(chunks);
 
         let blocks = self.blocks.read().expect("Lock poisoned");
-        let blocks = blocks
-            .as_ref()
-            .expect("Trying to mesh a non-generated chunk");
 
         if blocks.solid_blocks_count == 0 {
             return 0;

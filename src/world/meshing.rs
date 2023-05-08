@@ -14,6 +14,7 @@ use log::warn;
 use vulkanalia::vk::{self, DeviceV1_0, SuccessCode};
 
 use crate::{
+    gui,
     render::{create_fence, Buffer, CommandPool, StagingBuffer, Vertex, DEVICE, QUEUES},
     utils::try_init_array,
 };
@@ -113,6 +114,11 @@ fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Resu
                     .vertex_buffer
                     .lock()
                     .expect("Mutex poisoned") = Some(vertex_buffer);
+                gui::DATA
+                    .read()
+                    .expect("Lock poisoned")
+                    .meshed_chunks
+                    .fetch_add(1, Ordering::Relaxed);
                 current_copies_count -= 1;
             }
 

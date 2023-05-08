@@ -5,6 +5,7 @@ use nalgebra_glm as glm;
 use nalgebra_glm::Mat4;
 use vulkanalia::vk;
 
+use crate::gui;
 use crate::inputs::Inputs;
 use crate::world::EntityPos;
 
@@ -38,9 +39,13 @@ impl Camera {
     pub fn tick(&mut self, inputs: &Inputs, elapsed: Duration) {
         let mouse_delta = inputs.fetch_mouse_delta();
 
-        let yaw = self.pos.yaw() + mouse_delta.0 as f32 * SENSITIVITY;
+        let mut yaw = self.pos.yaw() + mouse_delta.0 as f32 * SENSITIVITY;
         let mut pitch = self.pos.pitch() - mouse_delta.1 as f32 * SENSITIVITY;
 
+        if yaw < 0. {
+            yaw += 360.;
+        }
+        yaw %= 360.;
         pitch = pitch.clamp(-89.0, 89.0);
 
         let dir = Vec3::new(yaw.to_radians().cos(), 0., yaw.to_radians().sin()).normalize();
@@ -72,6 +77,8 @@ impl Camera {
 
         self.pos.look.x = pitch;
         self.pos.look.y = yaw;
+
+        gui::DATA.write().expect("Lock poisoned").camera_pos = self.pos;
     }
 
     pub fn ubo(&self) -> UniformBufferObject {

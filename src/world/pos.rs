@@ -1,5 +1,5 @@
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     ops::{Add, Deref, DerefMut},
 };
 
@@ -66,7 +66,7 @@ pub struct ChunkPos {
 
 impl ChunkPos {
     #[inline(always)]
-    pub fn new(x: i64, y: i64, z: i64) -> Self {
+    pub const fn new(x: i64, y: i64, z: i64) -> Self {
         Self {
             inner: TVec3::new(x, y, z),
         }
@@ -115,6 +115,11 @@ impl Debug for ChunkPos {
         write!(f, "({}, {}, {})", self.x, self.y, self.z)
     }
 }
+impl Display for ChunkPos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.x, self.y, self.z)
+    }
+}
 
 /// The position on a block in the world.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
@@ -155,7 +160,7 @@ pub struct EntityPos {
 
 impl EntityPos {
     #[inline(always)]
-    pub fn new(x: f32, y: f32, z: f32, pitch: f32, yaw: f32) -> Self {
+    pub const fn new(x: f32, y: f32, z: f32, pitch: f32, yaw: f32) -> Self {
         Self {
             pos: TVec3::new(x, y, z),
             look: TVec2::new(pitch, yaw),
@@ -171,9 +176,18 @@ impl EntityPos {
     }
     #[inline(always)]
     pub fn chunk(&self) -> ChunkPos {
-        let x = (self.pos.x / CHUNK_SIZE as f32) as i64;
-        let y = (self.pos.y / CHUNK_SIZE as f32) as i64;
-        let z = (self.pos.z / CHUNK_SIZE as f32) as i64;
+        let mut x = (self.pos.x / CHUNK_SIZE as f32) as i64;
+        let mut y = (self.pos.y / CHUNK_SIZE as f32) as i64;
+        let mut z = (self.pos.z / CHUNK_SIZE as f32) as i64;
+        if self.pos.x < 0. {
+            x -= 1;
+        }
+        if self.pos.y < 0. {
+            y -= 1;
+        }
+        if self.pos.z < 0. {
+            z -= 1;
+        }
         ChunkPos::new(x, y, z)
     }
 }
@@ -194,6 +208,19 @@ impl Debug for EntityPos {
         write!(
             f,
             "({}, {}, {}, {}, {})",
+            self.pos.x,
+            self.pos.y,
+            self.pos.z,
+            self.pitch(),
+            self.yaw()
+        )
+    }
+}
+impl Display for EntityPos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:.2} {:.2} {:.2} {:.2} {:.2}",
             self.pos.x,
             self.pos.y,
             self.pos.z,

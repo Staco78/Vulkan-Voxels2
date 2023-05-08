@@ -71,11 +71,7 @@ fn block_exist(
         let neighbour = &neighbours[neighbour];
         if let Some(chunk) = neighbour {
             let blocks = chunk.blocks.read().expect("Lock poisoned");
-            if let Some(ref blocks) = *blocks {
-                blocks.data[pos.to_index()] != BlockId::Air
-            } else {
-                false
-            }
+            blocks.data[pos.to_index()] != BlockId::Air
         } else {
             false
         }
