@@ -18,8 +18,7 @@ const FAR: f32 = 100000.;
 #[derive(Debug)]
 #[repr(C)]
 pub struct UniformBufferObject {
-    view: Mat4,
-    proj: Mat4,
+    mat: Mat4,
 }
 
 #[derive(Debug)]
@@ -94,8 +93,7 @@ impl Camera {
         );
 
         UniformBufferObject {
-            view,
-            proj: self.proj,
+            mat: self.proj * view,
         }
     }
 

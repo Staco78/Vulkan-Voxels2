@@ -25,7 +25,7 @@ use super::{
     swapchain::Swapchain,
     uniform::Uniforms,
     vertex::VertexDescriptor,
-    Buffer, CommandBuffer, CommandPool,
+    Buffer, CommandBuffer, CommandPool, QUEUES,
 };
 
 const DEFAULT_INDEX_BUFFER_SIZE: usize = 2048;
@@ -72,18 +72,21 @@ pub struct GuiRenderer {
     index_buffers: Vec<Buffer>,
 
     uniforms: Uniforms<Vec2>,
-    command_buff: CommandBuffer,
+    textures_command_buff: CommandBuffer,
 
     descriptor_pool: DescriptorPool,
     descriptor_layout: DescriptorSetLayout,
     textures: HashMap<egui::TextureId, Texture>,
+
+    command_pool: CommandPool,
+    command_buffers: Vec<CommandBuffer>,
 }
 
 impl GuiRenderer {
     pub fn new(
         swapchain: &Swapchain,
         render_pass: &RenderPass,
-        cmd_pool: &CommandPool,
+        textures_cmd_pool: &mut CommandPool,
     ) -> Result<Self> {
         let uniforms = Uniforms::new(swapchain.images.len()).context("Uniforms creation failed")?;
 
@@ -106,23 +109,32 @@ impl GuiRenderer {
             .collect::<Result<Vec<_>>>()
             .context("Vertex buffers creation failed")?;
 
-        let command_buff = cmd_pool
-            .alloc_buffers(1)
+        let textures_command_buff = textures_cmd_pool
+            .alloc_buffers(1, false)
             .context("Failed to alloc command buffer")?
             .into_iter()
             .next()
             .expect("Should contain one buffer");
+
+        let mut command_pool = CommandPool::new(QUEUES.get_default_graphics().family)
+            .context("Command pool creation failed")?;
+        let command_buffers = command_pool
+            .alloc_buffers(swapchain.images.len(), true)
+            .context("Command buffers allocation failed")?;
 
         let mut s = Self {
             pipeline,
             vertex_buffers,
             index_buffers,
             uniforms,
-            command_buff,
+            textures_command_buff,
 
             descriptor_pool: pool,
             descriptor_layout: layout,
             textures: HashMap::new(),
+
+            command_pool,
+            command_buffers,
         };
         s.fill_uniforms(swapchain);
         Ok(s)
@@ -239,6 +251,10 @@ impl GuiRenderer {
                 .map(|_| Self::create_index_buff())
                 .collect::<Result<Vec<_>>>()
                 .context("Vertex buffers creation failed")?;
+
+            self.command_pool
+                .realloc_buffers(&mut self.command_buffers, swapchain.image_views.len(), true)
+                .context("Command buffers reallocation failed")?;
         }
         Ok(())
     }
@@ -296,7 +312,7 @@ impl GuiRenderer {
             .alloc_set(&self.descriptor_layout)
             .context("Descriptor set alloc failed")?;
         let texture = Texture::new(
-            &mut self.command_buff,
+            &mut self.textures_command_buff,
             &staging_buff,
             vk::Extent3D {
                 width: delta.image.width() as u32,
@@ -316,10 +332,10 @@ impl GuiRenderer {
     pub fn render(
         &mut self,
         image_index: usize,
-        command_buff: vk::CommandBuffer,
         primitives: &[egui::ClippedPrimitive],
         textures_delta: egui::TexturesDelta,
-    ) -> Result<()> {
+        inheritance_info: &vk::CommandBufferInheritanceInfo,
+    ) -> Result<vk::CommandBuffer> {
         self.load_textures(textures_delta)
             .context("Textures loading failed")?;
 
@@ -350,14 +366,16 @@ impl GuiRenderer {
                 .context("Buffer resize failed")?;
         }
 
+        let command_buff = &mut self.command_buffers[image_index];
+        command_buff.begin_secondary(inheritance_info)?;
         unsafe {
             DEVICE.cmd_bind_pipeline(
-                command_buff,
+                **command_buff,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline.pipeline,
             );
             DEVICE.cmd_bind_descriptor_sets(
-                command_buff,
+                **command_buff,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline.layout,
                 0,
@@ -396,15 +414,20 @@ impl GuiRenderer {
                 .with_context(|| format!("Texture {:?} not loaded", mesh.texture_id))?;
             unsafe {
                 DEVICE.cmd_bind_descriptor_sets(
-                    command_buff,
+                    **command_buff,
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline.layout,
                     1,
                     &[*texture.descriptor_set],
                     &[],
                 );
-                DEVICE.cmd_bind_vertex_buffers(command_buff, 0, &[vertex_buffer], &[0]);
-                DEVICE.cmd_bind_index_buffer(command_buff, index_buffer, 0, vk::IndexType::UINT32);
+                DEVICE.cmd_bind_vertex_buffers(**command_buff, 0, &[vertex_buffer], &[0]);
+                DEVICE.cmd_bind_index_buffer(
+                    **command_buff,
+                    index_buffer,
+                    0,
+                    vk::IndexType::UINT32,
+                );
                 let scissor = vk::Rect2D {
                     offset: vk::Offset2D {
                         x: clip_rect.min.x as i32,
@@ -415,9 +438,9 @@ impl GuiRenderer {
                         height: clip_rect.height() as u32,
                     },
                 };
-                DEVICE.cmd_set_scissor(command_buff, 0, &[scissor]);
+                DEVICE.cmd_set_scissor(**command_buff, 0, &[scissor]);
                 DEVICE.cmd_draw_indexed(
-                    command_buff,
+                    **command_buff,
                     indices.len() as _,
                     1,
                     index_i as _,
@@ -429,7 +452,8 @@ impl GuiRenderer {
             index_i += indices.len();
             vert_i += vertices.len();
         }
+        command_buff.end()?;
 
-        Ok(())
+        Ok(**command_buff)
     }
 }

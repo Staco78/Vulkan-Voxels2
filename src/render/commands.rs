@@ -24,10 +24,14 @@ impl CommandPool {
         Ok(Self { pool })
     }
 
-    pub fn alloc_buffers(&self, count: usize) -> Result<Vec<CommandBuffer>> {
+    pub fn alloc_buffers(&mut self, count: usize, secondary: bool) -> Result<Vec<CommandBuffer>> {
         let info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
+            .level(if secondary {
+                vk::CommandBufferLevel::SECONDARY
+            } else {
+                vk::CommandBufferLevel::PRIMARY
+            })
             .command_buffer_count(count as u32);
 
         let buffers = unsafe { DEVICE.allocate_command_buffers(&info)? };
@@ -55,6 +59,7 @@ impl CommandPool {
         &mut self,
         buffers: &mut Vec<CommandBuffer>,
         new_count: usize,
+        secondary: bool,
     ) -> Result<()> {
         let old_count = buffers.len();
         if old_count == new_count {
@@ -66,7 +71,7 @@ impl CommandPool {
                 buffer.free(self.pool);
             }
         } else {
-            let new_buffs = self.alloc_buffers(new_count - old_count)?;
+            let new_buffs = self.alloc_buffers(new_count - old_count, secondary)?;
             buffers.extend(new_buffs);
         }
 
@@ -94,11 +99,21 @@ impl CommandBuffer {
     pub fn begin(&mut self) -> Result<()> {
         let info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        unsafe {
-            DEVICE
-                .begin_command_buffer(self.buffer, &info)
-                .context("Command buffer begining failed")?
-        };
+        unsafe { DEVICE.begin_command_buffer(self.buffer, &info) }
+            .context("Command buffer begining failed")?;
+        Ok(())
+    }
+
+    #[inline]
+    pub fn begin_secondary(
+        &mut self,
+        inheritance_info: &vk::CommandBufferInheritanceInfo,
+    ) -> Result<()> {
+        let info = vk::CommandBufferBeginInfo::builder()
+            .inheritance_info(inheritance_info)
+            .flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE);
+        unsafe { DEVICE.begin_command_buffer(self.buffer, &info) }
+            .context("Command buffer begining failed")?;
         Ok(())
     }
 

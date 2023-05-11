@@ -15,7 +15,9 @@ use vulkanalia::vk::{self, DeviceV1_0, SuccessCode};
 
 use crate::{
     gui,
-    render::{create_fence, Buffer, CommandPool, StagingBuffer, Vertex, DEVICE, QUEUES},
+    render::{
+        create_fence, Buffer, CommandPool, RegionsManager, StagingBuffer, Vertex, DEVICE, QUEUES,
+    },
     utils::try_init_array,
 };
 
@@ -32,17 +34,22 @@ pub fn create_sender() -> (Sender<Message>, Receiver<Message>) {
     crossbeam_channel::unbounded()
 }
 
-pub fn start_threads(receiver: Receiver<Message>, chunks: &Arc<RwLock<Chunks>>) {
+pub fn start_threads(
+    receiver: Receiver<Message>,
+    chunks: &Arc<RwLock<Chunks>>,
+    regions: &Arc<RegionsManager>,
+) {
     let mut handles = HANDLES.lock().expect("Mutex poisoned");
     handles.reserve(THREADS_COUNT);
     for i in 0..THREADS_COUNT {
         let receiver = receiver.clone();
         let chunks = Arc::clone(chunks);
+        let regions = Arc::clone(regions);
         let handle = thread::Builder::new()
             .name(format!("Meshing {}", i))
             .spawn(|| {
                 #[allow(clippy::unwrap_used)]
-                thread_main(receiver, chunks).unwrap()
+                thread_main(receiver, chunks, regions).unwrap()
             })
             .expect("Thread spawn failed");
         handles.push(handle);
@@ -63,7 +70,11 @@ pub fn stop_threads(sender: &Sender<Message>) {
     }
 }
 
-fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Result<()> {
+fn thread_main(
+    receiver: Receiver<Message>,
+    chunks: Arc<RwLock<Chunks>>,
+    regions: Arc<RegionsManager>,
+) -> Result<()> {
     let fences: [vk::Fence; IN_FLIGHT_COPIES] = try_init_array(|| create_fence(true))?;
     let mut staging_buffs: [StagingBuffer; IN_FLIGHT_COPIES] = try_init_array(|| {
         StagingBuffer::new(
@@ -73,9 +84,9 @@ fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Resu
     })
     .context("Staging buffer creation failed")?;
     let queue = QUEUES.fetch_queue(vk::QueueFlags::TRANSFER)?;
-    let command_pool = CommandPool::new(queue.family)?;
+    let mut command_pool = CommandPool::new(queue.family)?;
     let mut command_buffs = command_pool
-        .alloc_buffers(IN_FLIGHT_COPIES)
+        .alloc_buffers(IN_FLIGHT_COPIES, false)
         .context("Command buffers alloc failed")?;
     const NONE_INIT: Option<(Arc<Chunk>, Buffer)> = None;
     let mut in_copy_chunks: [Option<(Arc<Chunk>, Buffer)>; IN_FLIGHT_COPIES] =
@@ -114,6 +125,8 @@ fn thread_main(receiver: Receiver<Message>, chunks: Arc<RwLock<Chunks>>) -> Resu
                     .vertex_buffer
                     .lock()
                     .expect("Mutex poisoned") = Some(vertex_buffer);
+                let region_pos = finished_copy_chunk.pos.region();
+                regions.set_dirty(region_pos)?;
                 gui::DATA
                     .read()
                     .expect("Lock poisoned")

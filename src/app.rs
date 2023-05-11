@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use log::warn;
@@ -35,13 +35,18 @@ pub struct App {
 impl App {
     pub fn new(window: Window, event_loop: &EventLoop<MainLoopEvent>) -> Result<Self> {
         events::init_proxy(event_loop);
-        let renderer = Renderer::new(&window).context("Renderer creation failed")?;
+
+        let chunks = World::create_chunks();
+        let renderer =
+            Renderer::new(&window, Arc::clone(&chunks)).context("Renderer creation failed")?;
+        let world =
+            World::new(chunks, Arc::clone(&renderer.regions)).context("World creation failed")?;
         let inputs = Inputs::new();
         let mut s = Self {
             game_focused: true,
             window,
             renderer,
-            world: World::new().context("World creation failed")?,
+            world,
             inputs,
             last_frame_time: Instant::now(),
             gui: GuiContext::new(event_loop),
@@ -126,14 +131,7 @@ impl App {
                 let gui_data = self.gui.render(&self.window);
 
                 self.renderer
-                    .render(
-                        elasped,
-                        &self.window,
-                        &self.inputs,
-                        &self.world,
-                        &gui_data.0,
-                        gui_data.1,
-                    )
+                    .render(elasped, &self.window, &self.inputs, &gui_data.0, gui_data.1)
                     .context("Rendering failed")?;
                 None
             }

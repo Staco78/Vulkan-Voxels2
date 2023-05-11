@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.70"
 crossbeam-channel = "0.5.8"
+crossbeam-utils = { version = "0.8.15", features = ["nightly"] }
 egui = "0.21.0"
 egui-winit = "0.21.1"
 log = { version = "0.4.17" }

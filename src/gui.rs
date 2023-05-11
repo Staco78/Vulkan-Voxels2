@@ -65,7 +65,9 @@ impl GuiContext {
             data.fps_calculator.frame_time
         ));
         ui.label(format!("Position: {}", data.camera_pos));
-        ui.label(format!("Chunk pos: {}", data.camera_pos.chunk()));
+        let chunk_pos = data.camera_pos.chunk();
+        ui.label(format!("Chunk: {}", chunk_pos));
+        ui.label(format!("Region: {}", chunk_pos.region()));
         ui.label(format!(
             "Chunks created/generated/meshed: {}/{}/{}",
             data.created_chunks.load(Ordering::Relaxed),

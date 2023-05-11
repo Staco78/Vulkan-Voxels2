@@ -5,11 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 
 use crate::{
     gui,
-    render::{Buffer, MAX_FRAMES_IN_FLIGHT},
+    render::{Buffer, RegionsManager, MAX_FRAMES_IN_FLIGHT},
 };
 
 use super::{chunk::Chunk, generator, meshing, ChunkPos};
@@ -18,7 +18,9 @@ use super::{chunk::Chunk, generator, meshing, ChunkPos};
 pub struct Chunks {
     data: HashMap<ChunkPos, Arc<Chunk>>,
     generator_sender: Sender<generator::Message>,
+    generator_receiver: Receiver<generator::Message>,
     meshing_sender: Sender<meshing::Message>,
+    meshing_receiver: Receiver<meshing::Message>,
 
     waiting_for_delete_buffers: WaitingForDeleteBuffers,
 }
@@ -27,24 +29,27 @@ impl Chunks {
     pub fn new() -> Arc<RwLock<Self>> {
         let (generator_sender, generator_receiver) = generator::create_sender();
         let (meshing_sender, meshing_receiver) = meshing::create_sender();
-        let chunks = Arc::new(RwLock::new(Self {
+        Arc::new(RwLock::new(Self {
             data: HashMap::new(),
             generator_sender,
+            generator_receiver,
             meshing_sender,
+            meshing_receiver,
             waiting_for_delete_buffers: Default::default(),
-        }));
+        }))
+    }
 
+    pub fn init(s: &Arc<RwLock<Self>>, regions: &Arc<RegionsManager>) {
+        let chunks = s.read().expect("Lock poisoned");
         generator::start_threads(
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_secs() as u32,
-            generator_receiver,
-            &chunks,
+            chunks.generator_receiver.clone(),
+            s,
         );
-        meshing::start_threads(meshing_receiver, &chunks);
-
-        chunks
+        meshing::start_threads(chunks.meshing_receiver.clone(), s, regions);
     }
 
     #[inline]
@@ -67,16 +72,18 @@ impl Chunks {
     }
 
     #[inline]
-    pub fn drain_filter<C>(&mut self, closure: C)
+    pub fn drain_filter<C>(&mut self, closure: C, regions: &RegionsManager)
     where
         C: FnMut(&ChunkPos, &mut Arc<Chunk>) -> bool,
     {
         let drained = self.data.drain_filter(closure);
-        self.waiting_for_delete_buffers.tick(
-            drained.filter_map(|(_, chunk)| {
+        self.waiting_for_delete_buffers
+            .tick(drained.filter_map(|(_, chunk)| {
+                regions
+                    .set_dirty(chunk.pos.region())
+                    .expect("Region should exists");
                 chunk.vertex_buffer.lock().expect("Mutex poisoned").take()
-            }),
-        )
+            }))
     }
 
     #[inline]

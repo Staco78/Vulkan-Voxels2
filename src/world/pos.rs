@@ -1,16 +1,22 @@
 use std::{
     fmt::{Debug, Display},
+    mem::size_of,
     ops::{Add, Deref, DerefMut},
+    slice,
 };
 
 use nalgebra_glm::{TVec2, TVec3, Vec3};
 
 use crate::world::CHUNK_SIZE;
 
+use super::REGION_SIZE;
+
 /// The position of a block in a chunk.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub struct LocalBlockPos {
-    inner: TVec3<u8>,
+    x: u8,
+    y: u8,
+    z: u8,
 }
 
 impl LocalBlockPos {
@@ -19,9 +25,7 @@ impl LocalBlockPos {
         debug_assert!(x < CHUNK_SIZE as u8, "x too big: {x}");
         debug_assert!(y < CHUNK_SIZE as u8, "y too big: {y}");
         debug_assert!(z < CHUNK_SIZE as u8, "z too big: {z}");
-        Self {
-            inner: TVec3::new(x, y, z),
-        }
+        Self { x, y, z }
     }
 
     #[inline(always)]
@@ -38,81 +42,88 @@ impl LocalBlockPos {
 
     #[inline(always)]
     pub fn to_index(self) -> usize {
-        let &[x, y, z] = self.inner.as_slice() else {
-            unreachable!()
-        };
-        (x as usize * CHUNK_SIZE + y as usize) * CHUNK_SIZE + z as usize
-    }
-}
-
-impl Deref for LocalBlockPos {
-    type Target = TVec3<u8>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-impl Debug for LocalBlockPos {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {}, {})", self.x, self.y, self.z)
+        (self.x as usize * CHUNK_SIZE + self.y as usize) * CHUNK_SIZE + self.z as usize
     }
 }
 
 /// The position of a chunk in the world.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub struct ChunkPos {
-    inner: TVec3<i64>,
+    x: i64,
+    y: i64,
+    z: i64,
 }
 
 impl ChunkPos {
     #[inline(always)]
     pub const fn new(x: i64, y: i64, z: i64) -> Self {
-        Self {
-            inner: TVec3::new(x, y, z),
-        }
+        Self { x, y, z }
     }
 
     #[inline(always)]
     pub fn as_bytes(&self) -> &[u8] {
-        let (a, bytes, b) = unsafe { self.inner.as_slice().align_to::<u8>() };
-        debug_assert!(a.is_empty());
-        debug_assert!(b.is_empty());
-        bytes
+        unsafe { slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>()) }
     }
 
     #[inline(always)]
     pub fn xyz(&self) -> (i64, i64, i64) {
-        let &[x, y, z] = self.inner.as_slice() else {
-            unreachable!()
-        };
-        (x, y, z)
+        (self.x, self.y, self.z)
     }
 
     #[inline(always)]
     pub fn flat(&self) -> FlatChunkPos {
         FlatChunkPos::new(self.x, self.z)
     }
-}
 
+    #[inline(always)]
+    pub fn x(&self) -> i64 {
+        self.x
+    }
+    #[inline(always)]
+    pub fn y(&self) -> i64 {
+        self.y
+    }
+    #[inline(always)]
+    pub fn z(&self) -> i64 {
+        self.z
+    }
+
+    #[inline(always)]
+    pub fn region(&self) -> RegionPos {
+        let mut x = self.x / REGION_SIZE as i64;
+        let mut y = self.y / REGION_SIZE as i64;
+        let mut z = self.z / REGION_SIZE as i64;
+        if self.x < 0 && self.x % REGION_SIZE as i64 != 0 {
+            x -= 1;
+        }
+        if self.y < 0 && self.y % REGION_SIZE as i64 != 0 {
+            y -= 1;
+        }
+        if self.z < 0 && self.z % REGION_SIZE as i64 != 0 {
+            z -= 1;
+        }
+        RegionPos::new(x, y, z)
+    }
+
+    #[inline(always)]
+    pub fn between(&self, a: &Self, b: &Self) -> bool {
+        self.x >= a.x
+            && self.y >= a.y
+            && self.z >= a.z
+            && self.x < b.x
+            && self.y < b.y
+            && self.z < b.z
+    }
+}
 impl Add for ChunkPos {
     type Output = Self;
     #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
         Self {
-            inner: self.inner + rhs.inner,
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
         }
-    }
-}
-impl Deref for ChunkPos {
-    type Target = TVec3<i64>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-impl Debug for ChunkPos {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {}, {})", self.x, self.y, self.z)
     }
 }
 impl Display for ChunkPos {
@@ -130,9 +141,7 @@ pub struct BlockPos {
 
 impl BlockPos {
     pub fn to_vec(self) -> TVec3<i128> {
-        let &[x, y, z] = self.chunk_pos.as_slice() else {
-            unreachable!()
-        };
+        let (x, y, z) = self.chunk_pos.xyz();
         let (x, y, z) = (
             x as i128 * CHUNK_SIZE as i128,
             y as i128 * CHUNK_SIZE as i128,
@@ -250,5 +259,48 @@ impl FlatChunkPos {
     #[inline(always)]
     pub fn z(&self) -> i64 {
         self.inner.y
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegionPos {
+    x: i64,
+    y: i64,
+    z: i64,
+}
+
+impl RegionPos {
+    #[inline(always)]
+    pub const fn new(x: i64, y: i64, z: i64) -> Self {
+        Self { x, y, z }
+    }
+
+    #[inline(always)]
+    pub fn x(&self) -> i64 {
+        self.x
+    }
+    #[inline(always)]
+    pub fn y(&self) -> i64 {
+        self.y
+    }
+    #[inline(always)]
+    pub fn z(&self) -> i64 {
+        self.z
+    }
+}
+impl Add for RegionPos {
+    type Output = Self;
+    #[inline(always)]
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
+impl Display for RegionPos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.x, self.y, self.z)
     }
 }

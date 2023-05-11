@@ -116,7 +116,7 @@ impl Generator {
     fn generate(&self, pos: &ChunkPos, blocks: &mut [BlockId; BLOCKS_PER_CHUNK]) -> u32 {
         let map = self.get_height_map(&pos.flat());
 
-        let chunk_floor = pos.y * CHUNK_SIZE as i64;
+        let chunk_floor = pos.y() * CHUNK_SIZE as i64;
 
         let mut solid_blocks = 0;
 

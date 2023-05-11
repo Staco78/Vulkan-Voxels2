@@ -1,4 +1,9 @@
-use std::{fmt::Debug, mem::size_of, sync::TryLockError, time::Duration};
+use std::{
+    fmt::Debug,
+    mem::size_of,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use anyhow::{anyhow, Context, Result};
 use vulkanalia::{
@@ -13,7 +18,7 @@ use crate::{
     options::AppOptions,
     render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms},
     shader_module,
-    world::{ChunkPos, EntityPos, World},
+    world::{chunks::Chunks, ChunkPos, EntityPos},
 };
 
 use super::{
@@ -33,6 +38,7 @@ use super::{
     swapchain::Swapchain,
     sync::{Fences, Semaphores},
     vertex::Vertex,
+    RegionsManager,
 };
 
 pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
@@ -59,10 +65,11 @@ pub struct Renderer {
 
     frame: usize,
     camera: Camera,
+    pub regions: Arc<RegionsManager>,
 }
 
 impl Renderer {
-    pub fn new(window: &Window) -> Result<Self> {
+    pub fn new(window: &Window, chunks: Arc<RwLock<Chunks>>) -> Result<Self> {
         let loader = unsafe { LibloadingLoader::new(LIBRARY) }
             .with_context(|| format!("{} not found", LIBRARY))?;
         let entry = unsafe { Entry::new(loader) }.expect("Entry creation");
@@ -87,11 +94,11 @@ impl Renderer {
         let depth_buffer = DepthBuffer::new(physical_device, &swapchain)
             .context("Depth buffer creation failed")?;
         let framebuffers = Framebuffers::new(&swapchain, &render_pass, &depth_buffer)?;
-        let command_pool = CommandPool::new(QUEUES.get_default_graphics().family)?;
+        let mut command_pool = CommandPool::new(QUEUES.get_default_graphics().family)?;
         let command_buffers = command_pool
-            .alloc_buffers(framebuffers.count())
+            .alloc_buffers(framebuffers.count(), false)
             .context("Command buffers allocation failed")?;
-        let gui_renderer = GuiRenderer::new(&swapchain, &render_pass, &command_pool)
+        let gui_renderer = GuiRenderer::new(&swapchain, &render_pass, &mut command_pool)
             .context("Gui renderer creation failed")?;
         let render_finished_semaphores = Semaphores::new(MAX_FRAMES_IN_FLIGHT)?;
         let image_available_semaphores = Semaphores::new(MAX_FRAMES_IN_FLIGHT)?;
@@ -99,6 +106,11 @@ impl Renderer {
         let images_in_flight = Fences::from_vec(vec![vk::Fence::null(); swapchain.images.len()]);
 
         let camera = Camera::new(swapchain.extent);
+
+        let regions = Arc::new(
+            RegionsManager::new(chunks, swapchain.images.len())
+                .context("Region manager creation failed")?,
+        );
 
         Ok(Self {
             _entry: entry,
@@ -121,6 +133,7 @@ impl Renderer {
 
             frame: 0,
             camera,
+            regions,
         })
     }
 
@@ -155,7 +168,6 @@ impl Renderer {
         elapsed: Duration,
         window: &Window,
         inputs: &Inputs,
-        world: &World,
         gui_primitives: &[egui::ClippedPrimitive],
         gui_textures_delta: egui::TexturesDelta,
     ) -> Result<()> {
@@ -220,62 +232,46 @@ impl Renderer {
                 .render_area(render_area)
                 .clear_values(clear_values);
             unsafe {
-                DEVICE.cmd_begin_render_pass(**command_buff, &info, vk::SubpassContents::INLINE);
-                DEVICE.cmd_bind_pipeline(
+                DEVICE.cmd_begin_render_pass(
                     **command_buff,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.pipeline,
-                );
-                DEVICE.cmd_bind_descriptor_sets(
-                    **command_buff,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.layout,
-                    0,
-                    &[*self.uniforms[image_index as usize].descriptor_set],
-                    &[],
+                    &info,
+                    vk::SubpassContents::SECONDARY_COMMAND_BUFFERS,
                 );
             }
 
-            for (pos, chunk) in world.chunks().iter() {
-                let r = chunk.vertex_buffer.try_lock();
-                let lock = match r {
-                    Ok(lock) => lock,
-                    Err(TryLockError::WouldBlock) => continue,
-                    Err(TryLockError::Poisoned(_)) => panic!("Mutex poisoned"),
-                };
-                let vertex_buffer = match *lock {
-                    Some(ref buff) => buff,
-                    None => continue,
-                };
+            let inheritance_info = vk::CommandBufferInheritanceInfo::builder()
+                .render_pass(*self.render_pass)
+                .subpass(0)
+                .framebuffer(self.framebuffers[image_index as usize]);
+
+            for region in self.regions.inner().values_mut() {
                 unsafe {
-                    DEVICE.cmd_bind_vertex_buffers(
+                    DEVICE.cmd_execute_commands(
                         **command_buff,
-                        0,
-                        &[vertex_buffer.buffer],
-                        &[0],
-                    );
-                    DEVICE.cmd_push_constants(
-                        **command_buff,
-                        self.pipeline.layout,
-                        vk::ShaderStageFlags::VERTEX,
-                        0,
-                        pos.as_bytes(),
-                    );
-                    let vertices_count = vertex_buffer.size() / size_of::<Vertex>();
-                    DEVICE.cmd_draw(**command_buff, vertices_count as u32, 1, 0, 0);
+                        &[region
+                            .fetch_cmd_buff(
+                                image_index as usize,
+                                &self.pipeline,
+                                *self.uniforms[image_index as usize].descriptor_set,
+                                &inheritance_info,
+                            )
+                            .context("Secondary cmd buff recording failed")?],
+                    )
                 }
             }
 
-            self.gui_renderer
+            let gui_buff = self
+                .gui_renderer
                 .render(
                     image_index as usize,
-                    **command_buff,
                     gui_primitives,
                     gui_textures_delta,
+                    &inheritance_info,
                 )
                 .context("Gui rendering failed")?;
 
             unsafe {
+                DEVICE.cmd_execute_commands(**command_buff, &[gui_buff]);
                 DEVICE.cmd_end_render_pass(**command_buff);
             };
 
@@ -341,27 +337,14 @@ impl Renderer {
         self.depth_buffer
             .recreate(self.physical_device, &self.swapchain)
             .context("Depth buffer recreation failed")?;
-        let render_pass_options =
-            RenderPassCreationOptions::default(&self.swapchain).with_depth(self.physical_device)?;
-        self.render_pass
-            .recreate(&render_pass_options)
-            .context("Render pass recreation failed")?;
-        let pipeline_options = Self::create_pipeline_options(&self.uniforms.layout)
-            .context("Pipeline options creation failed")?;
-        self.pipeline
-            .recreate::<Vertex>(&self.swapchain, &self.render_pass, &pipeline_options)
-            .context("Pipeline recreation failed")?;
-        self.framebuffers
-            .recreate(&self.swapchain, &self.render_pass, &self.depth_buffer)
-            .context("Framebuffers recreation failed")?;
+        self.recreate_pipeline()?;
         self.command_pool
-            .realloc_buffers(&mut self.command_buffers, self.framebuffers.count())
+            .realloc_buffers(&mut self.command_buffers, self.framebuffers.count(), false)
             .context("Command buffers reallocation failed")?;
         self.images_in_flight
             .resize(self.swapchain.images.len(), vk::Fence::null());
         self.camera.rebuild_proj(self.swapchain.extent);
-        self.gui_renderer
-            .recreate(&self.swapchain, &self.render_pass)?;
+
         Ok(())
     }
 
@@ -383,6 +366,9 @@ impl Renderer {
             .context("Framebuffers recreation failed")?;
         self.gui_renderer
             .recreate(&self.swapchain, &self.render_pass)?;
+        self.regions
+            .pipeline_recreated(self.swapchain.images.len())
+            .context("Regions pipeline recreation handling failed")?;
         Ok(())
     }
 
