@@ -43,9 +43,16 @@ impl SwapchainSupport {
             .unwrap_or_else(|| self.formats[0])
     }
 
+    #[cfg(not(feature = "bench"))]
     #[inline]
     pub fn get_best_present_mode(&self) -> vk::PresentModeKHR {
         vk::PresentModeKHR::FIFO
+    }
+
+    #[cfg(feature = "bench")]
+    #[inline]
+    pub fn get_best_present_mode(&self) -> vk::PresentModeKHR {
+        vk::PresentModeKHR::MAILBOX
     }
 
     fn get_extent(&self, window: &Window) -> vk::Extent2D {

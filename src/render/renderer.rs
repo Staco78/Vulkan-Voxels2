@@ -1,7 +1,7 @@
 use std::{
     fmt::Debug,
     mem::size_of,
-    sync::{Arc, RwLock},
+    sync::{atomic::Ordering, Arc, RwLock},
     time::Duration,
 };
 
@@ -14,6 +14,7 @@ use vulkanalia::{
 use winit::window::Window;
 
 use crate::{
+    gui,
     inputs::Inputs,
     options::AppOptions,
     render::{camera::UniformBufferObject, devices::Device, uniform::Uniforms},
@@ -244,7 +245,13 @@ impl Renderer {
                 .subpass(0)
                 .framebuffer(self.framebuffers[image_index as usize]);
 
-            for region in self.regions.inner().values_mut() {
+            let mut regions = self.regions.inner();
+            gui::DATA
+                .read()
+                .expect("Lock poisoned")
+                .loaded_regions
+                .store(regions.len(), Ordering::Relaxed);
+            for region in regions.values_mut() {
                 unsafe {
                     DEVICE.cmd_execute_commands(
                         **command_buff,

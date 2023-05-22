@@ -30,11 +30,12 @@ pub struct Camera {
 impl Camera {
     pub fn new(swapchain_extent: vk::Extent2D) -> Self {
         Self {
-            pos: EntityPos::new(0., 300., 0., 0., 0.),
+            pos: EntityPos::new(0., 300., 0., -30., 0.),
             proj: Self::create_proj(swapchain_extent),
         }
     }
 
+    #[cfg(not(feature = "bench"))]
     pub fn tick(&mut self, inputs: &Inputs, elapsed: Duration) {
         let mouse_delta = inputs.fetch_mouse_delta();
 
@@ -76,6 +77,18 @@ impl Camera {
 
         self.pos.look.x = pitch;
         self.pos.look.y = yaw;
+
+        gui::DATA.write().expect("Lock poisoned").camera_pos = self.pos;
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn tick(&mut self, _inputs: &Inputs, elapsed: Duration) {
+        use std::{sync::LazyLock, time::Instant};
+
+        static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+        let elapsed_total = START.elapsed();
+
+        self.pos.x += elapsed_total.as_secs_f32() * 30. * elapsed.as_secs_f32();
 
         gui::DATA.write().expect("Lock poisoned").camera_pos = self.pos;
     }

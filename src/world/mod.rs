@@ -10,9 +10,9 @@ pub use pos::*;
 
 use anyhow::Result;
 
-use std::sync::{Arc, RwLock};
+use std::sync::{atomic::Ordering, Arc, RwLock};
 
-use crate::render::RegionsManager;
+use crate::{gui, render::RegionsManager};
 
 use self::chunks::Chunks;
 
@@ -22,6 +22,7 @@ pub const MAX_VERTICES_PER_CHUNK: usize = BLOCKS_PER_CHUNK * 18;
 pub const RENDER_DISTANCE: usize = 10;
 pub const DISCARD_DISTANCE: usize = RENDER_DISTANCE + 2;
 pub const REGION_SIZE: usize = 8;
+pub const MAX_LOADED_CHUNKS_PER_FRAME: usize = 1000;
 
 #[derive(Debug)]
 pub struct World {
@@ -44,6 +45,9 @@ impl World {
         let (px, py, pz) = player_chunk_pos.xyz();
         let mut chunks = self.chunks.write().expect("Lock poisoned");
 
+        chunks.update_gui_data();
+
+        #[cfg(not(feature = "bench_chunks"))]
         chunks.drain_filter(
             |pos, _| {
                 let dx = (px - pos.x()).abs();
@@ -56,17 +60,28 @@ impl World {
             &self.regions,
         );
 
-        for x in (px - RENDER_DISTANCE as i64)..=(px + RENDER_DISTANCE as i64) {
+        let mut loaded_chunks = 0;
+
+        'outer: for x in (px - RENDER_DISTANCE as i64)..=(px + RENDER_DISTANCE as i64) {
             for y in (py - RENDER_DISTANCE as i64)..=(py + RENDER_DISTANCE as i64) {
                 for z in (pz - RENDER_DISTANCE as i64)..=(pz + RENDER_DISTANCE as i64) {
-                    if y > 10 {
-                        continue;
-                    }
                     let chunk_pos = ChunkPos::new(x, y, z);
-                    chunks.load(chunk_pos)?;
+                    if chunks.load(chunk_pos)? {
+                        loaded_chunks += 1;
+                    }
+
+                    if loaded_chunks > MAX_LOADED_CHUNKS_PER_FRAME {
+                        break 'outer;
+                    }
                 }
             }
         }
+
+        gui::DATA
+            .read()
+            .expect("Lock poisoned")
+            .loaded_chunks
+            .store(chunks.len(), Ordering::Relaxed);
 
         Ok(())
     }

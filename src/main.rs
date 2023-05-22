@@ -25,11 +25,14 @@
 #![feature(return_position_impl_trait_in_trait)]
 #![feature(unsize)]
 #![feature(int_roundings)]
-#![feature(pointer_byte_offsets)]
+#![cfg_attr(feature = "bench", feature(lazy_cell))]
+#![cfg_attr(feature = "bench", allow(dead_code, unused_imports))]
 
 extern crate test;
 
 mod app;
+#[cfg(feature = "bench")]
+mod bench;
 mod debug;
 mod events;
 mod gui;

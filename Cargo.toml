@@ -7,8 +7,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.70"
+chrono = { version = "0.4.24", optional = true }
 crossbeam-channel = "0.5.8"
 crossbeam-utils = { version = "0.8.15", features = ["nightly"] }
+csv = { version = "1.2.1", optional = true }
 egui = "0.21.0"
 egui-winit = "0.21.1"
 log = { version = "0.4.17" }
@@ -26,6 +28,10 @@ ctor = "0.2.0"
 [features]
 # for debug purpose
 dumb_allocator = []
+
+bench = ["csv", "chrono"]
+
+default = []
 
 
 [profile.release]

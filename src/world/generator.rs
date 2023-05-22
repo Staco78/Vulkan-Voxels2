@@ -85,11 +85,9 @@ fn thread_main(
                 .read()
                 .expect("Lock poisoned")
                 .chunk_generated(&chunk);
-            gui::DATA
-                .read()
-                .expect("Lock poisoned")
-                .generated_chunks
-                .fetch_add(1, Ordering::Relaxed);
+            let data = gui::DATA.read().expect("Lock poisoned");
+            data.generated_chunks_total.fetch_add(1, Ordering::Relaxed);
+            data.generated_chunks.fetch_add(1, Ordering::Relaxed);
         }
     }
 

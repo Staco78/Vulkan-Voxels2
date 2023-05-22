@@ -127,11 +127,9 @@ fn thread_main(
                     .expect("Mutex poisoned") = Some(vertex_buffer);
                 let region_pos = finished_copy_chunk.pos.region();
                 regions.set_dirty(region_pos)?;
-                gui::DATA
-                    .read()
-                    .expect("Lock poisoned")
-                    .meshed_chunks
-                    .fetch_add(1, Ordering::Relaxed);
+                let data = gui::DATA.read().expect("Lock poisoned");
+                data.meshed_chunks_total.fetch_add(1, Ordering::Relaxed);
+                data.meshed_chunks.fetch_add(1, Ordering::Relaxed);
                 current_copies_count -= 1;
             }
 

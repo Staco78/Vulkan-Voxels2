@@ -41,34 +41,37 @@ impl Chunks {
 
     pub fn init(s: &Arc<RwLock<Self>>, regions: &Arc<RegionsManager>) {
         let chunks = s.read().expect("Lock poisoned");
-        generator::start_threads(
+
+        let seed = if cfg!(feature = "bench") {
+            0
+        } else {
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Time went backwards")
-                .as_secs() as u32,
-            chunks.generator_receiver.clone(),
-            s,
-        );
+                .as_secs() as u32
+        };
+        generator::start_threads(seed, chunks.generator_receiver.clone(), s);
         meshing::start_threads(chunks.meshing_receiver.clone(), s, regions);
     }
 
+    /// Return `true` if the chunk has been successfully loaded.
     #[inline]
-    pub fn load(&mut self, pos: ChunkPos) -> Result<()> {
+    pub fn load(&mut self, pos: ChunkPos) -> Result<bool> {
         if let Entry::Vacant(entry) = self.data.entry(pos) {
             let chunk = Chunk::new(pos);
-            gui::DATA
-                .read()
-                .expect("Lock poisoned")
-                .created_chunks
-                .fetch_add(1, Ordering::Relaxed);
+            let data = gui::DATA.read().expect("Lock poisoned");
+            data.created_chunks_total.fetch_add(1, Ordering::Relaxed);
+            data.created_chunks.fetch_add(1, Ordering::Relaxed);
             let arc = Arc::new(chunk);
             let weak = Arc::downgrade(&arc);
             entry.insert(arc);
             self.generator_sender
                 .send(weak)
                 .context("Sender disconnected")?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     #[inline]
@@ -83,7 +86,15 @@ impl Chunks {
                     .set_dirty(chunk.pos.region())
                     .expect("Region should exists");
                 chunk.vertex_buffer.lock().expect("Mutex poisoned").take()
-            }))
+            }));
+    }
+
+    pub fn update_gui_data(&self) {
+        let data = gui::DATA.read().expect("Lock poisoned");
+        data.waiting_for_generate_chunks
+            .store(self.generator_sender.len(), Ordering::Relaxed);
+        data.waiting_for_mesh_chunks
+            .store(self.meshing_sender.len(), Ordering::Relaxed);
     }
 
     #[inline]
@@ -101,6 +112,11 @@ impl Chunks {
         self.meshing_sender
             .send(Arc::downgrade(chunk))
             .expect("Sender disconnected");
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 }
 

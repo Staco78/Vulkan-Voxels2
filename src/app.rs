@@ -56,6 +56,14 @@ impl App {
     }
 
     pub fn tick_event(&mut self, event: Event<MainLoopEvent>) -> Result<Option<ControlFlow>> {
+        #[cfg(feature = "bench")]
+        {
+            use std::{sync::LazyLock, time::Duration};
+            static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+            if START.elapsed() > Duration::from_secs(60) && !matches!(event, Event::LoopDestroyed) {
+                return Ok(Some(ControlFlow::Exit));
+            }
+        }
         let control_flow = match event {
             Event::WindowEvent { event, .. } => {
                 let propagate = self.gui.on_event(&event);
@@ -143,6 +151,11 @@ impl App {
                     None
                 }
             },
+            Event::LoopDestroyed => {
+                #[cfg(feature = "bench")]
+                crate::bench::end();
+                None
+            }
             _ => None,
         };
         Ok(control_flow)

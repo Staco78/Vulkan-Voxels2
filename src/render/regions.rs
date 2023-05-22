@@ -178,4 +178,10 @@ impl RegionsManager {
         }
         Ok(())
     }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.regions.lock().expect("Mutex poisoned").len()
+    }
 }

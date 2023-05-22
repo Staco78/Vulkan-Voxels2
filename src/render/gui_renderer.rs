@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use log::warn;
 use memoffset::offset_of;
 use nalgebra_glm::Vec2;
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
@@ -272,10 +273,10 @@ impl GuiRenderer {
         id: egui::TextureId,
         delta: &egui::epaint::ImageDelta,
     ) -> Result<()> {
-        assert!(
-            delta.pos.is_none(),
-            "Textures sub-region update not supported (yet)"
-        );
+        if delta.pos.is_some() {
+            warn!("Textures sub-region update not supported (yet)");
+            return Ok(());
+        }
 
         let pixels: Vec<u8> = match &delta.image {
             egui::ImageData::Color(image) => {
