@@ -118,10 +118,8 @@ impl Chunks {
     pub fn len(&self) -> usize {
         self.data.len()
     }
-}
 
-impl Drop for Chunks {
-    fn drop(&mut self) {
+    pub fn stop_threads(&self) {
         generator::stop_threads(&self.generator_sender);
         meshing::stop_threads(&self.meshing_sender);
     }

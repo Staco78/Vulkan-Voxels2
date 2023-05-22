@@ -86,3 +86,9 @@ impl World {
         Ok(())
     }
 }
+
+impl Drop for World {
+    fn drop(&mut self) {
+        self.chunks.read().expect("Lock poisoned").stop_threads();
+    }
+}

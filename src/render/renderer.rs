@@ -388,7 +388,7 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            let _ = DEVICE.queue_wait_idle(*DEVICE.graphics_queue);
+            let _ = DEVICE.device_wait_idle();
         }
         // Prevent destructor to destroy null or already destroyed fences.
         self.images_in_flight.clear();
