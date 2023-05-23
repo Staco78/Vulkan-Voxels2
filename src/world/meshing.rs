@@ -169,7 +169,7 @@ fn thread_main(
         buff_idx = (buff_idx + 1) % IN_FLIGHT_COPIES;
     }
 
-    let _ = unsafe { DEVICE.queue_wait_idle(*queue) };
+    unsafe { DEVICE.queue_wait_idle(*queue) }.unwrap_or_else(|e| warn!("{e}"));
 
     Ok(())
 }

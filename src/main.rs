@@ -83,7 +83,11 @@ fn init_logger() -> Result<()> {
 #[cfg(test)]
 #[ctor::ctor]
 fn init() {
-    let (window, event_loop) = Window::new().expect("Window creation failed");
+    use render::Renderer;
+    use world::chunks::Chunks;
+
+    let (window, _event_loop) = Window::new().expect("Window creation failed");
     window.set_visible(false);
-    let _app = App::new(window, &event_loop).expect("App creation failed");
+    let chunks = Chunks::new();
+    let _renderer = Renderer::new(&window, chunks);
 }

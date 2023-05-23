@@ -53,13 +53,14 @@ impl RegionCmdBuff {
         }
     }
 
+    /// Return `true` if there is no chunks to render in this region.
     fn record_commands(
         &mut self,
         index: usize,
         pipeline: &Pipeline,
         descriptor_set: vk::DescriptorSet,
         inheritance_info: &vk::CommandBufferInheritanceInfo,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let buff = &mut self.buffers[index];
         buff.reset()?;
         buff.begin_secondary(inheritance_info)?;
@@ -75,6 +76,7 @@ impl RegionCmdBuff {
                 &[],
             );
         }
+        let mut is_empty = true;
         let chunks = self.chunks.read().expect("Lock poisoned");
         // TODO: using another data structure may permit to get directly an iterator over the required chunks instead of filtering
         for (pos, chunk) in chunks
@@ -82,6 +84,7 @@ impl RegionCmdBuff {
             .filter(|&(pos, _)| pos.between(&self.min_pos, &self.max_pos))
         {
             debug_assert_eq!(pos.region(), self.pos);
+            is_empty = false;
             let Some(ref vertex_buffer) = *chunk.vertex_buffer.lock().expect("Lock poisoned") else { continue; };
             unsafe {
                 DEVICE.cmd_bind_vertex_buffers(**buff, 0, &[vertex_buffer.buffer], &[0]);
@@ -98,21 +101,25 @@ impl RegionCmdBuff {
         }
 
         buff.end()?;
-        Ok(())
+        Ok(is_empty)
     }
 
+    /// Return `Ok(None)` if the region should be deleted instead of rendered.
     pub fn fetch_cmd_buff(
         &mut self,
         index: usize,
         pipeline: &Pipeline,
         descriptor_set: vk::DescriptorSet,
         inheritance_info: &vk::CommandBufferInheritanceInfo,
-    ) -> Result<vk::CommandBuffer> {
+    ) -> Result<Option<vk::CommandBuffer>> {
         if self.dirty_buffs[index] {
             self.dirty_buffs[index] = false;
-            self.record_commands(index, pipeline, descriptor_set, inheritance_info)?;
+            let empty = self.record_commands(index, pipeline, descriptor_set, inheritance_info)?;
+            if empty {
+                return Ok(None);
+            }
         }
-        Ok(*self.buffers[index])
+        Ok(Some(*self.buffers[index]))
     }
 
     #[inline]

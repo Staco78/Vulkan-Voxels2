@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use crossbeam_channel::{Receiver, Sender};
+use log::warn;
 use mini_moka::sync::Cache;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
@@ -59,7 +60,10 @@ pub fn stop_threads(sender: &Sender<Message>) {
         let _ = sender.send(Weak::new());
     }
     for handle in handles.drain(..) {
-        let _ = handle.join();
+        let r = handle.join();
+        if let Err(e) = r {
+            warn!("Failed to join chunk: {:?}", e);
+        }
     }
 }
 

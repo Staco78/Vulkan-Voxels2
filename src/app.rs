@@ -23,8 +23,8 @@ use crate::{
 pub struct App {
     game_focused: bool,
     window: Window,
-    renderer: Renderer,
     world: World,
+    renderer: Renderer,
     inputs: Inputs,
 
     last_frame_time: Instant,

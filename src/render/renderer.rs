@@ -245,6 +245,7 @@ impl Renderer {
                 .subpass(0)
                 .framebuffer(self.framebuffers[image_index as usize]);
 
+            let mut to_delete = Vec::new();
             let mut regions = self.regions.inner();
             gui::DATA
                 .read()
@@ -252,20 +253,28 @@ impl Renderer {
                 .loaded_regions
                 .store(regions.len(), Ordering::Relaxed);
             for region in regions.values_mut() {
-                unsafe {
-                    DEVICE.cmd_execute_commands(
-                        **command_buff,
-                        &[region
-                            .fetch_cmd_buff(
-                                image_index as usize,
-                                &self.pipeline,
-                                *self.uniforms[image_index as usize].descriptor_set,
-                                &inheritance_info,
-                            )
-                            .context("Secondary cmd buff recording failed")?],
+                let buff = match region
+                    .fetch_cmd_buff(
+                        image_index as usize,
+                        &self.pipeline,
+                        *self.uniforms[image_index as usize].descriptor_set,
+                        &inheritance_info,
                     )
-                }
+                    .context("Secondary cmd buff recording failed")?
+                {
+                    Some(b) => b,
+                    None => {
+                        to_delete.push(region.pos);
+                        continue;
+                    }
+                };
+                unsafe { DEVICE.cmd_execute_commands(**command_buff, &[buff]) }
             }
+
+            for region in to_delete {
+                regions.remove(&region);
+            }
+            drop(regions);
 
             let gui_buff = self
                 .gui_renderer
