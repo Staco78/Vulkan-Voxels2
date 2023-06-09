@@ -22,7 +22,6 @@ pub const MAX_VERTICES_PER_CHUNK: usize = BLOCKS_PER_CHUNK * 18;
 pub const RENDER_DISTANCE: usize = 10;
 pub const DISCARD_DISTANCE: usize = RENDER_DISTANCE + 2;
 pub const REGION_SIZE: usize = 8;
-pub const MAX_LOADED_CHUNKS_PER_FRAME: usize = 1000;
 
 #[derive(Debug)]
 pub struct World {
@@ -47,7 +46,6 @@ impl World {
 
         chunks.update_gui_data();
 
-        #[cfg(not(feature = "bench_chunks"))]
         chunks.drain_filter(
             |pos, _| {
                 let dx = (px - pos.x()).abs();
@@ -60,18 +58,47 @@ impl World {
             &self.regions,
         );
 
-        let mut loaded_chunks = 0;
+        let mut load = |x: i32, y: i32, z: i32| -> Result<()> {
+            let pos = ChunkPos::new(
+                player_chunk_pos.x() + x as i64,
+                player_chunk_pos.y() + y as i64,
+                player_chunk_pos.z() + z as i64,
+            );
+            chunks.load(pos)?;
+            Ok(())
+        };
 
-        'outer: for x in (px - RENDER_DISTANCE as i64)..=(px + RENDER_DISTANCE as i64) {
-            for y in (py - RENDER_DISTANCE as i64)..=(py + RENDER_DISTANCE as i64) {
-                for z in (pz - RENDER_DISTANCE as i64)..=(pz + RENDER_DISTANCE as i64) {
-                    let chunk_pos = ChunkPos::new(x, y, z);
-                    if chunks.load(chunk_pos)? {
-                        loaded_chunks += 1;
-                    }
-
-                    if loaded_chunks > MAX_LOADED_CHUNKS_PER_FRAME {
-                        break 'outer;
+        let n = RENDER_DISTANCE as i32 * 3;
+        let m = RENDER_DISTANCE as i32;
+        for distance in 0..n - 1 {
+            for i in 0..=distance {
+                let x = i;
+                for j in 0..=distance - x {
+                    let y = j;
+                    let z = distance - (x + y);
+                    if x <= m && y <= m && z <= m {
+                        load(x, y, z)?;
+                        if x != 0 {
+                            load(-x, y, z)?;
+                        }
+                        if y != 0 {
+                            load(x, -y, z)?;
+                        }
+                        if z != 0 {
+                            load(x, y, -z)?;
+                        }
+                        if x != 0 && y != 0 {
+                            load(-x, -y, z)?;
+                        }
+                        if x != 0 && z != 0 {
+                            load(-x, y, -z)?;
+                        }
+                        if y != 0 && z != 0 {
+                            load(x, -y, -z)?;
+                        }
+                        if x != 0 && y != 0 && z != 0 {
+                            load(-x, -y, -z)?;
+                        }
                     }
                 }
             }
